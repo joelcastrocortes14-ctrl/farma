@@ -455,3 +455,16 @@ test('exportar a Excel: inventario, ventas, pedido y clientes; solo staff', asyn
   assert.match((await bajar('/exportar/pedido'))['xl/worksheets/sheet1.xml'], /Pide|Pronto|Agotado/);
   assert.match((await bajar('/exportar/clientes'))['xl/worksheets/sheet1.xml'], /María López/);
 });
+
+test('etiquetas QR: lotes por producto, compra o lote; exige un filtro y rol staff', async () => {
+  assert.equal((await cajero.get('/etiquetas?producto_id=1')).status, 403);
+  assert.equal((await regente.get('/etiquetas')).status, 400);
+  const porProducto = (await regente.get(`/etiquetas?producto_id=${P.vit}`)).body;
+  assert.ok(porProducto.length >= 1);
+  assert.ok(porProducto.every(l => l.codigo === 'A4' && l.cantidad > 0));
+  const compra = (await admin.post('/compras', { items: [{ producto_id: P.rapido, lote: 'ETQ1', vence: dia(300), cantidad: 1, costo: 300 }] })).body.id;
+  const deCompra = (await regente.get('/etiquetas?compra_id=' + compra)).body;
+  assert.equal(deCompra.length, 1);
+  assert.equal(deCompra[0].lote, 'ETQ1');
+  assert.equal((await regente.get('/etiquetas?lote_id=' + deCompra[0].lote_id)).body[0].codigo, 'RP');
+});

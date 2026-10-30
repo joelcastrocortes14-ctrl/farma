@@ -394,7 +394,7 @@ V.compras = async el => {
     e.preventDefault(); const d = formData(e.target);
     const items = lineas.filter(l => l.producto_id).map(l => ({ producto_id: num(l.producto_id), lote: l.lote, vence: l.vence, cantidad: num(l.cantidad), costo: num(l.costo) }));
     const r = await POST('/compras', { proveedor_id: d.proveedor_id ? num(d.proveedor_id) : null, factura: d.factura, items });
-    toast('Mercancía ingresada' + (r.avisos?.length ? ` · se avisó por WhatsApp a ${r.avisos.length} cliente(s)` : '')); V.compras(el); refrescarBadge();
+    toast('Mercancía ingresada' + (r.avisos?.length ? ` · se avisó por WhatsApp a ${r.avisos.length} cliente(s)` : '')); V.compras(el); refrescarBadge(); ofrecerEtiquetas(r.id);
   });
   $('#nprov').onclick = () => {
     modal(html`<h3>Nuevo proveedor</h3><form id="fProv"><label>Nombre *<input name="nombre" required></label><label>Teléfono WhatsApp (573001234567)<input name="telefono"></label><label>Contacto<input name="contacto"></label>

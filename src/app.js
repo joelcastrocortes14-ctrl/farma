@@ -157,6 +157,14 @@ function crearApp() {
   api.get('/pedido-sugerido', wrap(() => inv.sugerenciasPedido()));
   api.get('/productos/:id/lotes', wrap(req => db.prepare('SELECT * FROM lotes WHERE producto_id = ? AND cantidad > 0 ORDER BY vence').all(req.params.id)));
   api.post('/lotes/:id/baja', staff, wrap(req => inv.ajustarLote({ lote_id: Number(req.params.id), cantidad: req.body.cantidad, motivo: req.body.motivo, usuario_id: req.user.id })));
+  api.get('/etiquetas', staff, wrap(req => {
+    const filtros = { producto_id: 'l.producto_id', compra_id: 'l.compra_id', lote_id: 'l.id' };
+    const usados = Object.keys(filtros).filter(k => req.query[k] !== undefined);
+    if (!usados.length) throw new HttpError(400, 'Indica producto_id, compra_id o lote_id');
+    return db.prepare(`SELECT l.id AS lote_id, l.lote, l.vence, l.cantidad, p.id AS producto_id, p.nombre, p.presentacion, p.codigo, p.factor
+      FROM lotes l JOIN productos p ON p.id = l.producto_id WHERE l.cantidad > 0 AND ${usados.map(k => filtros[k] + ' = ?').join(' AND ')} ORDER BY p.nombre, l.vence LIMIT 500`)
+      .all(...usados.map(k => Number(req.query[k])));
+  }));
   api.get('/kardex/:productoId', staff, wrap(req => db.prepare(`SELECT m.*, l.lote, u.nombre AS usuario FROM movimientos m LEFT JOIN lotes l ON l.id = m.lote_id
     LEFT JOIN usuarios u ON u.id = m.usuario_id WHERE m.producto_id = ? ORDER BY m.id DESC LIMIT 200`).all(req.params.productoId)));
 

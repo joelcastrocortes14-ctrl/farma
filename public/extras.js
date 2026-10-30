@@ -74,9 +74,10 @@ async function fichaProducto(i, op = {}) {
       <div class="card kpi"><div class="l">Proveedor</div><div class="n" style="font-size:18px">${i.proveedor || '—'}</div><div class="l">${i.dias_entrega != null ? 'entrega en ' + i.dias_entrega + ' d' : ''}</div></div></div>
     <div class="tw"><table><thead><tr><th>Lote</th><th>Vence</th><th>Estado</th><th class="r">Cantidad</th><th>Comprado a</th></tr></thead><tbody>${lotesTabla}${i.lotes.length ? '' : html`<tr><td colspan="5" class="mut">Sin lotes con existencia</td></tr>`}</tbody></table></div>
     <div class="row" style="margin-top:16px">${op.agregar ? html`<button class="btn ok" id="fpAgregar">${ic('cart')} Agregar a la venta</button>` : ''}
-      ${op.kardex ? html`<button class="btn" id="fpKardex">Kardex</button>` : ''}<button class="btn" onclick="cerrar()">Cerrar</button></div>`);
+      ${op.kardex ? html`<button class="btn" id="fpKardex">Kardex</button><button class="btn" id="fpEtiq">${ic('scan')} Etiquetas QR</button>` : ''}<button class="btn" onclick="cerrar()">Cerrar</button></div>`);
   if (op.agregar) $('#fpAgregar').onclick = op.agregar;
   if (op.kardex) $('#fpKardex').onclick = guard(async () => verKardex(i));
+  if (op.kardex) $('#fpEtiq').onclick = () => etiquetasDe({ producto_id: i.id }, 'Etiquetas · ' + i.nombre);
 }
 async function verKardex(i) {
   const k = await GET('/kardex/' + i.id);
