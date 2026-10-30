@@ -212,13 +212,12 @@ V.pos = async el => {
   function pintarCarrito() {
     const total = S.cart.reduce((s, l) => s + lineTotal(l), 0);
     const bruto = S.cart.reduce((s, l) => s + Math.round(unidades(l) * unitPrice(l)), 0);
-    $('#cart').innerHTML = S.cart.length ? html`<div class="tw"><table class="cart"><tbody>${S.cart.map((l, i) => html`<tr>
-      <td>${l.p.nombre}${l.p.requiere_formula ? html` <span class="badge pur">Rx</span>` : ''}${unidades(l) > l.p.stock ? html`<div class="error">Solo hay ${stockTxt(l.p.stock, l.p.factor)}</div>` : ''}${problemaRx(l) ? html`<div class="error">${problemaRx(l)}</div>` : ''}</td>
-      <td style="width:62px"><input type="number" min="1" value="${l.cantidad}" data-i="${i}" data-f="cantidad"></td>
-      <td style="width:104px">${l.p.factor > 1 ? html`<select data-i="${i}" data-f="modo"><option value="unidad" ${l.modo === 'unidad' ? 'selected' : ''}>unidad</option><option value="empaque" ${l.modo === 'empaque' ? 'selected' : ''}>empaque</option></select>` : 'unidad'}</td>
-      <td style="width:66px"><input type="number" min="0" max="100" value="${l.pct}" title="% descuento" data-i="${i}" data-f="pct"></td>
-      <td class="r" style="width:84px"><b>${cop(lineTotal(l))}</b></td>
-      <td style="width:28px"><button class="btn ghost sm" data-del="${i}">${ic('x')}</button></td></tr>`)}</tbody></table></div>`.s : '<p class="mut">Agrega productos buscándolos o escaneándolos.</p>';
+    $('#cart').innerHTML = S.cart.length ? html`${S.cart.map((l, i) => html`<div class="linea">
+      <div class="nom">${l.p.nombre}${l.p.requiere_formula ? html` <span class="badge pur">Rx</span>` : ''}${unidades(l) > l.p.stock ? html`<div class="error">Solo hay ${stockTxt(l.p.stock, l.p.factor)}</div>` : ''}${problemaRx(l) ? html`<div class="error">${problemaRx(l)}</div>` : ''}</div>
+      <div class="ctl"><input class="q" type="number" min="1" value="${l.cantidad}" data-i="${i}" data-f="cantidad" aria-label="Cantidad">
+        ${l.p.factor > 1 ? html`<select class="m" data-i="${i}" data-f="modo" aria-label="Unidad o empaque"><option value="unidad" ${l.modo === 'unidad' ? 'selected' : ''}>unidad</option><option value="empaque" ${l.modo === 'empaque' ? 'selected' : ''}>empaque</option></select>` : html`<span class="mut">unidad</span>`}
+        <input class="d" type="number" min="0" max="100" value="${l.pct}" title="% de descuento" placeholder="%" data-i="${i}" data-f="pct" aria-label="Descuento en porcentaje">
+        <b class="t">${cop(lineTotal(l))}</b><button class="btn ghost sm" data-del="${i}" aria-label="Quitar">${ic('x')}</button></div></div>`)}`.s : '<p class="mut">Agrega productos buscándolos o escaneándolos.</p>';
     $('#total').textContent = cop(total);
     $('#desc').textContent = bruto > total ? `Descuento: ${cop(bruto - total)}` : '';
     $$('#cart [data-f]').forEach(inp => inp.onchange = () => { const l = S.cart[inp.dataset.i]; l[inp.dataset.f] = inp.dataset.f === 'modo' ? inp.value : Math.max(0, num(inp.value)); if (l.cantidad < 1) l.cantidad = 1; setTimeout(pintarCarrito, 0); }); // diferido: redibujar dentro del evento 'change' provoca re-entrada

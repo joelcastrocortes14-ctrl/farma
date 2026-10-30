@@ -51,7 +51,7 @@ header #quien{color:var(--mut);font-size:13px;white-space:nowrap}
 .grid{display:grid;gap:16px}
 .cards4{grid-template-columns:repeat(4,1fr)}
 .two{grid-template-columns:repeat(auto-fit,minmax(380px,1fr))}
-.kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 .big{display:block;text-decoration:none;color:inherit;cursor:pointer;padding:24px;transition:transform .12s,border-color .12s;text-align:left;font:inherit;width:100%}
 .big:hover{transform:translateY(-2px);border-color:var(--blue)}
 .big .top{display:flex;align-items:center;gap:12px;color:var(--mut);font-weight:600}
@@ -115,11 +115,13 @@ pre.msg{white-space:pre-wrap;background:var(--soft);padding:10px;border-radius:1
 .logo b{display:block;font-size:28px;letter-spacing:-.02em}.logo b i{font-style:normal;color:var(--blue)}.logo span{color:var(--mut);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase}
 
 /* ---------- punto de venta ---------- */
-.pos{display:grid;grid-template-columns:1fr 480px;gap:16px;align-items:start}
+.pos{display:grid;grid-template-columns:minmax(0,1fr) 480px;gap:16px;align-items:start}.pos>*{min-width:0}
 .res{display:grid;gap:8px;margin-top:12px;max-height:64vh;overflow:auto}
 .res .it,.gres .it{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:14px;cursor:pointer}
 .gres .it{border:0}.res .it:hover,.gres .it:hover{background:var(--soft);border-color:var(--blue)}.res .it.sin{opacity:.55}
-.cart td{padding:7px 4px}.cart input,.cart select{padding:6px 8px;border-radius:10px}
+.linea{position:relative;padding:10px 0;border-bottom:1px solid var(--line)}.linea [data-del]{position:absolute;top:6px;right:-4px}.linea .nom{padding-right:34px}.linea:last-child{border-bottom:0}
+.linea .nom{font-weight:600}.linea .ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:7px}
+.linea .ctl input,.linea .ctl select{padding:7px 9px;border-radius:10px}.linea .q{width:64px;flex:none}.linea .m{width:108px;flex:none}.linea .d{width:64px;flex:none}.linea .t{margin-left:auto;white-space:nowrap}
 .tot{font-size:30px;font-weight:700;letter-spacing:-.02em}
 
 /* ---------- tickets / recibo ---------- */
@@ -167,11 +169,11 @@ dialog::backdrop{background:rgba(10,20,35,.5)}#modalBody{padding:24px;overflow:a
   dialog{position:static;width:auto;max-height:none;box-shadow:none;background:#fff;color:#000}#modalBody{padding:0;max-height:none;overflow:visible}
   .ticket{max-width:72mm;font-size:12px;color:#000}@page{margin:3mm}
 }
-@media (max-width:1100px){.cards4{grid-template-columns:repeat(2,1fr)}.pos{grid-template-columns:1fr}}
+@media (max-width:1100px){.cards4{grid-template-columns:repeat(2,minmax(0,1fr))}.pos{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:900px){
-  #app{grid-template-columns:1fr}aside{position:fixed;z-index:20;left:-260px;width:250px;transition:left .2s;box-shadow:var(--shadow)}aside.open{left:0}
+  #app{grid-template-columns:minmax(0,1fr)}aside{position:fixed;z-index:20;left:-260px;width:250px;transition:left .2s;box-shadow:var(--shadow)}aside.open{left:0}
   #menuBtn{display:inline-flex}.f2{grid-template-columns:1fr}.two{grid-template-columns:1fr}
   header{padding:10px 12px;flex-wrap:wrap}header h2{font-size:17px}.gsearch{order:5;max-width:none;flex-basis:100%;margin:0}.btn .lbl{display:none}#quien{display:none}
   #main{padding:16px 12px 90px}
 }
-@media (max-width:560px){.cards4{grid-template-columns:1fr}.big .n{font-size:36px}}
+@media (max-width:560px){.cards4{grid-template-columns:minmax(0,1fr)}.big .n{font-size:36px}}
