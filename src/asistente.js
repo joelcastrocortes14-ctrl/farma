@@ -57,7 +57,9 @@ function ayuda() {
     '¿Cuánto acetaminofén tengo?', '¿Cuáles son los más vendidos?', '¿Quién me debe?', 'Productos de control especial con poco stock'] };
 }
 
-function preguntar(pregunta) {
+const RESERVADO = { respuesta: 'Esa información (ventas, utilidad y cartera) es solo para el regente o el administrador.', items: [] };
+
+function preguntar(pregunta, rol) {
   const q = norm(pregunta).trim();
   if (!q) return ayuda();
   const f = filtro(pregunta);
@@ -67,6 +69,7 @@ function preguntar(pregunta) {
 
   // Ventas
   if (/vend|ventas|factur/.test(q) && !/mas vendido|top|mejor/.test(q) && !/vence|stock/.test(q)) {
+    if (rol === 'cajero') return RESERVADO;
     const dias = /ayer/.test(q) ? 1 : /semana/.test(q) ? 7 : /mes/.test(q) ? 30 : 0;
     const desde = fmt(new Date(Date.now() - dias * 86400000)).slice(0, 10);
     const hasta = /ayer/.test(q) ? desde : hoy();
@@ -76,11 +79,13 @@ function preguntar(pregunta) {
       items: r.top.slice(0, 5).map(t => ({ titulo: t.nombre, detalle: `${t.unidades} u`, etiqueta: pesos(t.total), tono: 'azul' })) };
   }
   if (/mas vendido|top|mejor|rotan|rotacion/.test(q)) {
+    if (rol === 'cajero') return RESERVADO;
     const r = reporteVentas({ desde: fmt(new Date(Date.now() - 30 * 86400000)).slice(0, 10), hasta: hoy() });
     return { respuesta: 'Los más vendidos de los últimos 30 días:', items: r.top.map(t => ({ titulo: t.nombre, detalle: `${t.unidades} u`, etiqueta: pesos(t.total), tono: 'azul' })) };
   }
   // Cartera
   if (/\b(me )?deben?\b|quien(es)? (me )?debe|fiado|cartera|por cobrar|me adeuda/.test(q) && !/pedir|pedido|pide/.test(q)) {
+    if (rol === 'cajero') return RESERVADO;
     const cl = db.prepare('SELECT nombre, saldo FROM clientes WHERE saldo > 0 ORDER BY saldo DESC LIMIT 15').all();
     if (!cl.length) return { respuesta: 'Nadie te debe nada.', items: [] };
     return { respuesta: `Te deben ${pesos(cl.reduce((s, c) => s + c.saldo, 0))} en total:`, items: cl.map(c => ({ titulo: c.nombre, detalle: '', etiqueta: pesos(c.saldo), tono: 'ambar' })) };

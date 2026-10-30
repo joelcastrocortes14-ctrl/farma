@@ -47,11 +47,11 @@ function crearApp() {
   app.use('/api', api);
 
   // ---------- Dashboard ----------
-  api.get('/dashboard', wrap(() => {
+  api.get('/dashboard', wrap(req => {
     const venc = inv.analisisVencimientos();
     const stock = inv.stockCritico();
     const hoyR = sales.reporteVentas({});
-    return {
+    const d = {
       total_productos: db.prepare('SELECT COUNT(*) n FROM productos WHERE activo = 1').get().n,
       por_vencer: venc.filter(l => l.dias <= 90).length, vencen_semana: venc.filter(l => l.dias <= 7).length,
       stock_bajo: stock.length, pedido_sugerido: inv.sugerenciasPedido().length,
@@ -65,6 +65,9 @@ function crearApp() {
       top_stock: inv.sugerenciasPedido().slice(0, 5),
       ventas_7d: sales.reporteVentas({ desde: fmt(new Date(Date.now() - 6 * 864e5)).slice(0, 10), hasta: hoy() }).por_dia,
     };
+    // el cajero ve lo operativo del día; la utilidad, la cartera y la tendencia son del regente y el administrador
+    if (req.user.rol === 'cajero') Object.assign(d, { utilidad_hoy: null, cartera: null, ventas_7d: null });
+    return d;
   }));
 
   // ---------- Productos ----------
@@ -142,7 +145,7 @@ function crearApp() {
 
   // ---------- Escáner, asistente, avisos ----------
   api.get('/escaneo', wrap(req => escaneo.consultar(req.query.c, req.query.id)));
-  api.post('/asistente', wrap(req => asistente.preguntar(req.body.pregunta)));
+  api.post('/asistente', wrap(req => asistente.preguntar(req.body.pregunta, req.user.rol)));
   api.get('/clientes/:id/historial', wrap(req => clientes.historial(Number(req.params.id))));
   api.post('/clientes/:id/avisos', wrap(req => clientes.crearAviso(Number(req.params.id), Number(req.body.producto_id))));
   api.get('/avisos/pendientes', wrap(() => clientes.pendientes()));

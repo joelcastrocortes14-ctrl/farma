@@ -291,7 +291,11 @@ test('asistente: responde preguntas en lenguaje natural', async () => {
   assert.ok(a.items.some(i => i.titulo.includes('Azitromicina')));
   assert.ok(!a.items.some(i => i.titulo.includes('Acetaminofén')));
   assert.ok((await ask('que vence esta semana')).items.some(i => i.titulo.includes('OLD')));
-  assert.match((await ask('¿Cuánto vendí hoy?')).respuesta, /Vendiste \$/);
+  const askReg = async q => (await regente.post('/asistente', { pregunta: q })).body;
+  assert.match((await askReg('¿Cuánto vendí hoy?')).respuesta, /Vendiste \$/);
+  assert.match((await ask('¿Cuánto vendí hoy?')).respuesta, /solo para el regente/);                 // el cajero no ve ventas ni utilidad
+  assert.match((await ask('¿quién me debe?')).respuesta, /solo para el regente/);
+  assert.match((await ask('cuáles son los más vendidos')).respuesta, /solo para el regente/);
   assert.ok((await ask('¿qué debo pedir?')).items.some(i => i.titulo.includes('Rápido')));
   assert.match((await ask('cuanta azitromicina tengo')).respuesta, /Encontré 1/);
   assert.match((await ask('asdfghj')).respuesta, /No encontré/);
@@ -511,4 +515,15 @@ test('WhatsApp: estado de configuración sin secretos y mensaje de prueba', asyn
   assert.ok((await regente.get('/alertas/log')).body.some(l => l.tipo === 'prueba'));
   setCfg.run('alerta_destinos', '');
   assert.equal((await regente.post('/alertas/prueba')).body.sin_destinos, true);
+});
+
+test('el cajero no ve utilidad, cartera ni tendencia en el inicio', async () => {
+  const c = (await cajero.get('/dashboard')).body;
+  assert.equal(c.utilidad_hoy, null);
+  assert.equal(c.cartera, null);
+  assert.equal(c.ventas_7d, null);
+  assert.equal(typeof c.ventas_hoy, 'number');                       // lo operativo sí
+  const r = (await regente.get('/dashboard')).body;
+  assert.equal(typeof r.utilidad_hoy, 'number');
+  assert.ok(Array.isArray(r.ventas_7d));
 });

@@ -109,14 +109,14 @@ function cambiarClave() {
 /* ---------- Inicio ---------- */
 V.inicio = async el => {
   const d = await GET('/dashboard');
-  const max = Math.max(1, ...d.ventas_7d.map(x => x.total));
+  const max = Math.max(1, ...(d.ventas_7d || []).map(x => x.total));
   const hayRojo = d.lotes_vencidos > 0 || d.lotes_criticos > 0;
   el.innerHTML = html`
   <div class="grid cards4">
     <a class="card big" data-go="inventario"><div class="top"><span class="ico blue">${ic('package')}</span>Total de productos</div><div class="n">${d.total_productos}</div><div class="sub">en tu catálogo</div></a>
     <a class="card big alerta ${hayRojo ? 'rojo' : ''}" data-go="vencimientos"><div class="top"><span class="ico ${hayRojo ? 'red' : 'amb'}">${ic('alert')}</span>Por vencer</div><div class="n">${d.por_vencer}</div><div class="sub">${d.lotes_vencidos} vencidos · ${d.lotes_criticos} en 30 días · ${cop(d.valor_en_riesgo)} en riesgo</div></a>
     <a class="card big ${d.stock_bajo ? 'alerta' : ''}" data-go="stock"><div class="top"><span class="ico amb">${ic('trend')}</span>Stock bajo</div><div class="n">${d.stock_bajo}</div><div class="sub">${d.agotados} agotados · ${d.pedido_sugerido} por pedir</div></a>
-    <a class="card big" data-go="reportes"><div class="top"><span class="ico green">${ic('cash')}</span>Ventas del día</div><div class="n">${cop(d.ventas_hoy)}</div><div class="sub">${d.num_ventas_hoy} ventas · utilidad ${cop(d.utilidad_hoy)}</div></a>
+    <a class="card big" data-go="reportes"><div class="top"><span class="ico green">${ic('cash')}</span>Ventas del día</div><div class="n">${cop(d.ventas_hoy)}</div><div class="sub">${d.num_ventas_hoy} ventas${d.utilidad_hoy != null ? ` · utilidad ${cop(d.utilidad_hoy)}` : ''}</div></a>
   </div>
   <button class="panic" id="panic">${ic('alert')} ¿Qué vence esta semana? <small>${d.vencen_semana ? d.vencen_semana + ' lote(s) requieren acción' : 'nada urgente'}</small></button>
   <div class="grid two">
@@ -126,9 +126,9 @@ V.inicio = async el => {
     <div class="card"><h3>Qué pedir</h3>
       <div class="tw"><table><tbody>${d.top_stock.map(p => html`<tr><td><b>${p.nombre}</b><div class="mut">${p.sugerencia || p.motivo}</div></td><td>${urgBadge(p)}</td><td class="r"><b>${p.sugerido_empaques}</b> emp</td></tr>`)}
       ${d.top_stock.length ? '' : html`<tr><td class="mut">${ic('check')} Todo en orden</td></tr>`}</tbody></table></div></div>
-    <div class="card"><h3>Ventas últimos 7 días</h3>
+    ${d.ventas_7d ? html`<div class="card"><h3>Ventas últimos 7 días</h3>
       ${d.ventas_7d.map(x => html`<div class="row" style="margin:8px 0"><span class="mut" style="width:56px">${x.dia.slice(5)}</span><div class="bar grow"><i style="width:${(x.total / max * 100).toFixed(0)}%"></i></div><b style="width:100px;text-align:right">${cop(x.total)}</b></div>`)}
-      <p class="mut" style="margin-bottom:0">Cartera por cobrar: <b>${cop(d.cartera)}</b></p></div>
+      <p class="mut" style="margin-bottom:0">Cartera por cobrar: <b>${cop(d.cartera)}</b></p></div>` : ''}
   </div>`.s;
   $$('[data-go]').forEach(a => a.onclick = () => go(a.dataset.go));
   $('#panic').onclick = () => panico();
