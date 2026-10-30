@@ -51,6 +51,7 @@ La **cámara en vivo** solo la permiten los navegadores con **HTTPS** o en `loca
 | **Clientes (CRM)** | Historial, lo que compra seguido y cada cuánto, cartera. Pueden pedir que se les avise cuando llegue un producto: al ingresar la compra se envía el WhatsApp. Los clientes habituales de un producto que llegó se sugieren, pero **no se les escribe solos**. |
 | **Asistente** | Chat que responde preguntas como *"¿qué antibióticos me quedan con stock bajo?"*, *"¿qué vence esta semana?"*, *"¿cuánto vendí hoy?"*. Funciona con reglas sobre tus propios datos: sin servicio externo ni costo. |
 | **Alertas WhatsApp** | Stock crítico y vencimientos, sin repetir el mismo aviso en el día, más resumen diario. |
+| **Exportar a Excel** | Inventario con lotes, ventas con detalle y utilidad, pedido sugerido y cartera de clientes, en archivos `.xlsx` reales (con filtros y fechas). Solo regente y administrador. |
 | **Compras, inventario, caja, reportes, usuarios** | Ingreso con lote y vencimiento, kardex, bajas, cierre de caja, ventas y utilidad, roles cajero / regente / admin. |
 | **Modo oscuro** | Botón en la cabecera (turno nocturno). Recuerda tu elección. |
 

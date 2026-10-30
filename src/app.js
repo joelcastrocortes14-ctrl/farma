@@ -14,6 +14,7 @@ const clientes = require('./clientes');
 const asistente = require('./asistente');
 const importador = require('./importar');
 const respaldo = require('./respaldo');
+const exportador = require('./exportar');
 const { guardarImagen, rutaImagen } = require('./archivos');
 
 const { HttpError } = inv;
@@ -106,6 +107,10 @@ function crearApp() {
   }));
   api.delete('/productos/:id', staff, wrap(req => { db.prepare('UPDATE productos SET activo = 0 WHERE id = ?').run(req.params.id); return { ok: true }; }));
 
+  api.get('/exportar/:tipo', staff, wrap((req, res) => {
+    const { archivo, buffer } = exportador.generar(req.params.tipo, req.query);
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="${archivo}"` }).send(buffer);
+  }));
   api.post('/clave', wrap(req => { auth.cambiarClave(req.user.id, req.body.actual, req.body.nueva); return { ok: true }; }));
   api.get('/respaldos', admin, wrap(() => respaldo.listar()));
   api.post('/respaldos', admin, wrap(() => respaldo.crear()));

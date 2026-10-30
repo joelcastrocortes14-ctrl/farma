@@ -292,7 +292,7 @@ V.stock = async el => {
   const staff = S.user.rol !== 'cajero';
   const [st, pedidos, log, me] = await Promise.all([GET('/pedido-sugerido'), staff ? GET('/alertas/pedidos') : [], staff ? GET('/alertas/log') : [], GET('/me')]);
   el.innerHTML = html`
-  <div class="card tw"><h3>Sugerencia de pedido automática</h3><p class="mut" style="margin-top:-6px">Calculada con lo que realmente vendes por día y lo que demora cada proveedor en entregar.</p>
+  <div class="card tw"><div class="row sp"><h3 style="margin:0">Sugerencia de pedido automática</h3>${staff ? html`<a class="btn sm" href="/api/exportar/pedido">${ic('download')} Excel</a>` : ''}</div><p class="mut" style="margin-top:6px">Calculada con lo que realmente vendes por día y lo que demora cada proveedor en entregar.</p>
   <table><thead><tr><th>Producto</th><th></th><th class="r">Existencia</th><th class="r">Ventas/día</th><th>Se agota</th><th>Qué hacer</th><th class="r">Pedir</th></tr></thead><tbody>
   ${st.map(p => html`<tr><td><b>${p.nombre}</b><div class="mut">${p.proveedor || 'Sin proveedor'} · entrega en ${p.entrega} d</div></td><td>${urgBadge(p)}</td><td class="r">${stockTxt(p.vendible, p.factor)}</td><td class="r">${p.rotacion_dia}</td>
     <td>${p.fecha_agota ? p.fecha_agota.slice(5) : '—'}</td><td>${p.sugerencia || p.motivo}</td><td class="r"><b>${p.sugerido_empaques}</b> emp</td></tr>`)}
@@ -334,7 +334,7 @@ V.inventario = async el => {
     $$('[data-ver]').forEach(b => b.onclick = guard(async () => fichaProducto(await GET('/escaneo?id=' + b.dataset.ver), { kardex: staff })));
     $$('[data-edit]').forEach(b => b.onclick = () => editar(prods.find(p => p.id == b.dataset.edit)));
   };
-  el.innerHTML = html`<div class="row sp" style="margin-bottom:14px"><input id="busca" class="grow" placeholder="Buscar por nombre, código, principio activo o categoría…" style="max-width:460px">${staff ? html`<span class="row"><button class="btn" id="importar">${ic('upload')} Importar de Excel</button><button class="btn primary" id="nuevo">${ic('plus')} Nuevo producto</button></span>` : ''}</div>
+  el.innerHTML = html`<div class="row sp" style="margin-bottom:14px"><input id="busca" class="grow" placeholder="Buscar por nombre, código, principio activo o categoría…" style="max-width:460px">${staff ? html`<span class="row"><a class="btn" href="/api/exportar/inventario" title="Productos y lotes en Excel">${ic('download')} Exportar a Excel</a><button class="btn" id="importar">${ic('upload')} Importar de Excel</button><button class="btn primary" id="nuevo">${ic('plus')} Nuevo producto</button></span>` : ''}</div>
     <div class="row" style="margin-bottom:12px"><span class="mut">Semáforo:</span><span class="badge grn">${semDot('verde')} Bien</span><span class="badge amb">${semDot('amarillo')} Vence en ≤ 3 meses o se agota pronto</span><span class="badge red">${semDot('rojo')} Vence en ≤ 30 días, vencido o stock bajo</span></div>
     <div class="card tw" id="tabla"></div>`.s;
   let t; $('#busca').oninput = e => { clearTimeout(t); t = setTimeout(guard(() => cargar(e.target.value)), 200); };
@@ -406,7 +406,7 @@ V.compras = async el => {
 /* ---------- Clientes / CRM ---------- */
 V.clientes = async el => {
   const [cl, av] = await Promise.all([GET('/clientes'), GET('/avisos/pendientes')]);
-  el.innerHTML = html`<div class="row sp" style="margin-bottom:14px"><span class="mut">Cartera total: <b>${cop(cl.reduce((s, c) => s + c.saldo, 0))}</b></span><button class="btn primary" id="nc">${ic('plus')} Nuevo cliente</button></div>
+  el.innerHTML = html`<div class="row sp" style="margin-bottom:14px"><span class="mut">Cartera total: <b>${cop(cl.reduce((s, c) => s + c.saldo, 0))}</b></span><span class="row">${S.user.rol !== 'cajero' ? html`<a class="btn" href="/api/exportar/clientes">${ic('download')} Cartera a Excel</a>` : ''}<button class="btn primary" id="nc">${ic('plus')} Nuevo cliente</button></span></div>
     ${av.explicitos.length || av.habituales.length ? html`<div class="card" style="margin-bottom:16px"><h3>${ic('chat')} Avisos a clientes</h3>
       ${av.explicitos.map(a => html`<div class="alertbox ${a.disponible ? 'ok' : ''}"><div class="row sp"><span><b>${a.nombre}</b> pidió que le avisen cuando llegue <b>${a.producto}</b> ${a.disponible ? '(ya hay stock)' : html`<span class="mut">(aún sin stock)</span>`}</span>
         ${a.disponible ? html`<span class="row"><button class="btn ok sm" data-env="${a.id}">Enviar WhatsApp</button>${a.wa_link ? html`<a class="btn sm" target="_blank" rel="noopener" href="${a.wa_link}">Abrir chat</a>` : ''}</span>` : ''}</div></div>`)}
@@ -457,7 +457,7 @@ V.caja = async el => {
 V.reportes = async el => {
   const d = el.dataset.desde || hoy().slice(0, 8) + '01', h = el.dataset.hasta || hoy();
   const [r, libro] = await Promise.all([GET(`/reportes/ventas?desde=${d}&hasta=${h}`), GET(`/reportes/formulas?desde=${d}&hasta=${h}`)]);
-  el.innerHTML = html`<form id="fRep" class="row" style="margin-bottom:12px"><label style="margin:0">Desde<input type="date" name="desde" value="${d}"></label><label style="margin:0">Hasta<input type="date" name="hasta" value="${h}"></label><button class="btn primary" style="align-self:end">Ver</button></form>
+  el.innerHTML = html`<form id="fRep" class="row" style="margin-bottom:12px"><label style="margin:0">Desde<input type="date" name="desde" value="${d}"></label><label style="margin:0">Hasta<input type="date" name="hasta" value="${h}"></label><button class="btn primary" style="align-self:end">Ver</button><a class="btn" style="align-self:end" href="/api/exportar/ventas?desde=${d}&hasta=${h}">${ic('download')} Ventas a Excel</a></form>
   <div class="grid kpis"><div class="card kpi grn"><div class="l">Ventas</div><div class="n">${cop(r.total)}</div><div class="l">${r.ventas} tickets</div></div><div class="card kpi"><div class="l">Utilidad bruta</div><div class="n">${cop(r.utilidad)}</div></div><div class="card kpi"><div class="l">Descuentos</div><div class="n">${cop(r.descuentos)}</div></div><div class="card kpi"><div class="l">IVA</div><div class="n">${cop(r.iva)}</div></div></div>
   <div class="grid two" style="margin-top:14px"><div class="card tw"><h3>Más vendidos</h3><table><tbody>${r.top.map(t => html`<tr><td>${t.nombre}</td><td class="r">${t.unidades} u</td><td class="r">${cop(t.total)}</td></tr>`)}</tbody></table></div>
   <div class="card"><h3>Por medio de pago</h3><table><tbody>${r.por_medio.map(m => html`<tr><td>${m.medio_pago}</td><td class="r">${cop(m.total)}</td></tr>`)}</tbody></table></div></div>

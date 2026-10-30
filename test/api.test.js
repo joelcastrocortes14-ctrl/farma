@@ -422,3 +422,36 @@ test('chequeo de salud público y sin datos sensibles', async () => {
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { ok: true });
 });
+
+// Lee las hojas de un .xlsx generado: zip -> XML (suficiente para comprobar contenido)
+function leerXlsx(buf) {
+  const zlib = require('node:zlib');
+  const archivos = {};
+  const fin = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  let p = buf.readUInt32LE(fin + 16);
+  for (let i = 0, n = buf.readUInt16LE(fin + 10); i < n; i++) {
+    const comp = buf.readUInt32LE(p + 20), nl = buf.readUInt16LE(p + 28), el = buf.readUInt16LE(p + 30), cl = buf.readUInt16LE(p + 32), off = buf.readUInt32LE(p + 42);
+    const nombre = buf.toString('utf8', p + 46, p + 46 + nl);
+    const ini = off + 30 + buf.readUInt16LE(off + 26) + buf.readUInt16LE(off + 28);
+    archivos[nombre] = zlib.inflateRawSync(buf.subarray(ini, ini + comp)).toString('utf8');
+    p += 46 + nl + el + cl;
+  }
+  return archivos;
+}
+
+test('exportar a Excel: inventario, ventas, pedido y clientes; solo staff', async () => {
+  assert.equal((await cajero.raw('/exportar/inventario')).status, 403);
+  assert.equal((await regente.raw('/exportar/nada')).status, 404);
+  assert.equal((await regente.raw('/exportar/ventas?desde=2026-12-31&hasta=2026-01-01')).status, 400);
+  const bajar = async url => { const r = await regente.raw(url); assert.equal(r.status, 200); assert.match(r.headers.get('content-disposition'), /attachment; filename="vitaltrack-.*\.xlsx"/); return leerXlsx(Buffer.from(await r.arrayBuffer())); };
+  const inv = await bajar('/exportar/inventario');
+  assert.match(inv['xl/workbook.xml'], /Productos/);
+  assert.match(inv['xl/workbook.xml'], /Lotes/);
+  assert.match(inv['xl/worksheets/sheet1.xml'], /Acetaminofén Rápido/);                    // tildes intactas
+  assert.match(inv['xl/worksheets/sheet2.xml'], /OLD/);                                    // lote vencido listado
+  const ven = await bajar('/exportar/ventas');
+  assert.match(ven['xl/worksheets/sheet1.xml'], /VT-0000\d\d/);
+  assert.match(ven['xl/worksheets/sheet2.xml'], /Utilidad/);
+  assert.match((await bajar('/exportar/pedido'))['xl/worksheets/sheet1.xml'], /Pide|Pronto|Agotado/);
+  assert.match((await bajar('/exportar/clientes'))['xl/worksheets/sheet1.xml'], /María López/);
+});
