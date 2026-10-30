@@ -26,6 +26,9 @@ const bool = v => (v ? 1 : 0);
 function crearApp() {
   const app = express();
   app.disable('x-powered-by');
+  // Detrás de un proxy (Render, Railway, Fly…) la IP real viene en X-Forwarded-For; sin esto el límite de intentos de login vería una sola IP
+  if (process.env.TRUST_PROXY) app.set('trust proxy', /^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY);
+  app.get('/api/salud', (_req, res) => { db.prepare('SELECT 1').get(); res.json({ ok: true }); });   // chequeo de salud para la plataforma
   app.use(express.json({ limit: '4mb' }));
   app.use((_req, res, next) => { res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store' }); next(); });
 
@@ -243,7 +246,8 @@ function asegurarAdmin() {
   if (db.prepare('SELECT COUNT(*) n FROM usuarios').get().n) return;
   const pw = process.env.ADMIN_PASSWORD || crypto.randomBytes(5).toString('hex');
   db.prepare("INSERT INTO usuarios(nombre,usuario,hash,rol) VALUES('Administrador','admin',?,'admin')").run(auth.hashPassword(pw));
-  console.log(`\n  Usuario inicial -> admin / ${pw}   (cámbiala en Configuración → Usuarios)\n`);
+  // Solo se muestra si la generó el sistema; una contraseña definida por ti no se escribe en los registros
+  console.log(process.env.ADMIN_PASSWORD ? '\n  Usuario inicial creado: admin (con la contraseña de ADMIN_PASSWORD)\n' : `\n  Usuario inicial -> admin / ${pw}   (cámbiala en Configuración → Usuarios)\n`);
 }
 
 module.exports = { crearApp, asegurarAdmin };

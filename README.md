@@ -65,6 +65,27 @@ En **Inventario → Importar de Excel**:
 
 Entiende precios como `$ 24.500` o `12.500,50`, fechas como `2027-06-30`, `30/06/2027` o `06/2027` (último día del mes) y Sí/No en fórmula y control especial. Crea los proveedores que no existan. Si reimportas el mismo archivo no duplica lotes; con "Actualizar los productos que ya existen" cambia precios, costos y mínimos.
 
+## Publicar en internet
+
+Sirve para usar VitalTrack desde el celular o desde cualquier computador, sin dejar un PC encendido. Además da HTTPS, así que la **cámara en vivo** del escáner funciona en el celular. El repositorio ya trae `Dockerfile` y `render.yaml`.
+
+**En Render (https://render.com):**
+
+1. Crea una cuenta y conecta tu GitHub.
+2. **New → Blueprint** y elige este repositorio. Render lee `render.yaml` y crea el servicio con un **disco persistente** (la base de datos es un archivo SQLite, así que el disco es obligatorio; ese plan tiene costo mensual, revisa el precio vigente).
+3. Cuando termine, abre la dirección `https://….onrender.com`. En **Environment** verás `ADMIN_PASSWORD`: es la contraseña inicial del usuario `admin`. Entra y cámbiala.
+4. Carga tu inventario con *Inventario → Importar de Excel*. No se cargan los datos de demostración.
+5. Cada cambio que se suba a la rama configurada se publica solo.
+
+Para WhatsApp, agrega las variables `WA_PROVIDER`, `WA_TOKEN` y `WA_PHONE_ID` en el panel (ver *Configurar WhatsApp*).
+
+**Antes de publicar, revisa:**
+- Cambia la contraseña de `admin` y crea tus usuarios reales. Ya no uses las de demostración.
+- Los respaldos se guardan en el mismo disco: descarga uno de vez en cuando desde *Configuración*.
+- Esto contiene datos de pacientes y recetas: usa solo HTTPS y no compartas el enlace con quien no deba entrar.
+
+También funciona en Railway o Fly.io: cualquier servicio que ejecute el `Dockerfile` y monte un volumen en `/data`.
+
 ## Configurar WhatsApp
 
 Por defecto el modo es `simulado`: los mensajes se registran pero no se envían. Para enviar de verdad:

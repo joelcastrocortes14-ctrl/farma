@@ -1,0 +1,28 @@
+# Despliegue en Render: https://render.com  (New > Blueprint > elige este repositorio)
+# La base de datos es un archivo SQLite, por eso necesita un disco persistente (plan de pago).
+services:
+  - type: web
+    name: vitaltrack
+    runtime: docker
+    branch: desarrollo          # cambia a main cuando pases el código a esa rama
+    plan: starter
+    healthCheckPath: /api/salud
+    autoDeploy: true            # cada cambio en la rama se publica solo
+    disk:
+      name: datos
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: COOKIE_SECURE
+        value: "1"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: ADMIN_PASSWORD     # contraseña inicial del usuario "admin": cámbiala al entrar
+        generateValue: true
+      # WhatsApp (opcional). Descomenta y completa en el panel de Render:
+      # - key: WA_PROVIDER
+      #   value: meta
+      # - key: WA_TOKEN
+      #   sync: false
+      # - key: WA_PHONE_ID
+      #   sync: false

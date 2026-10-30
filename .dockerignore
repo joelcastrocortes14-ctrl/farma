@@ -1,0 +1,9 @@
+node_modules
+data
+test
+.git
+*.zip
+*.db
+*.db-*
+dev.bat
+README.md

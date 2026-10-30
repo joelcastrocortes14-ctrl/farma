@@ -416,3 +416,9 @@ test('contraseñas de demostración: se avisa y se puede cambiar con reglas', as
   const vieja = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario: 'admin', password: 'admin123' }) });
   assert.equal(vieja.status, 401);
 });
+
+test('chequeo de salud público y sin datos sensibles', async () => {
+  const r = await fetch(base + '/api/salud');
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { ok: true });
+});
