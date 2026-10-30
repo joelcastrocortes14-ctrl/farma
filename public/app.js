@@ -318,11 +318,11 @@ V.inventario = async el => {
     $$('[data-ver]').forEach(b => b.onclick = guard(async () => fichaProducto(await GET('/escaneo?id=' + b.dataset.ver), { kardex: staff })));
     $$('[data-edit]').forEach(b => b.onclick = () => editar(prods.find(p => p.id == b.dataset.edit)));
   };
-  el.innerHTML = html`<div class="row sp" style="margin-bottom:14px"><input id="busca" class="grow" placeholder="Buscar por nombre, código, principio activo o categoría…" style="max-width:460px">${staff ? html`<button class="btn primary" id="nuevo">${ic('plus')} Nuevo producto</button>` : ''}</div>
+  el.innerHTML = html`<div class="row sp" style="margin-bottom:14px"><input id="busca" class="grow" placeholder="Buscar por nombre, código, principio activo o categoría…" style="max-width:460px">${staff ? html`<span class="row"><button class="btn" id="importar">${ic('upload')} Importar de Excel</button><button class="btn primary" id="nuevo">${ic('plus')} Nuevo producto</button></span>` : ''}</div>
     <div class="row" style="margin-bottom:12px"><span class="mut">Semáforo:</span><span class="badge grn">${semDot('verde')} Bien</span><span class="badge amb">${semDot('amarillo')} Vence en ≤ 3 meses o se agota pronto</span><span class="badge red">${semDot('rojo')} Vence en ≤ 30 días, vencido o stock bajo</span></div>
     <div class="card tw" id="tabla"></div>`.s;
   let t; $('#busca').oninput = e => { clearTimeout(t); t = setTimeout(guard(() => cargar(e.target.value)), 200); };
-  if (staff) $('#nuevo').onclick = () => editar(null);
+  if (staff) { $('#nuevo').onclick = () => editar(null); $('#importar').onclick = () => importarProductos(() => cargar($('#busca').value)); }
   await cargar();
 
   async function editar(p) {

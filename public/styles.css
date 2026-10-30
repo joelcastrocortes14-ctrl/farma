@@ -20,6 +20,7 @@ body{margin:0;font:15px/1.45 "Segoe UI",system-ui,-apple-system,Roboto,sans-seri
 .hidden{display:none!important}
 h1,h2,h3,h4{margin:0}h3{font-size:17px;margin-bottom:12px}h4{margin:16px 0 8px;font-size:14px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
 a{color:var(--blue)}
+code{font:13px ui-monospace,Menlo,Consolas,monospace;background:var(--soft);padding:1px 6px;border-radius:6px}
 .ic{width:1.2em;height:1.2em;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.22em;flex:none}
 .mut{color:var(--mut)}.r{text-align:right}.error{color:var(--red);min-height:1.2em;margin:8px 0 0}
 
@@ -75,6 +76,7 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--soft)}
 
 /* ---------- formularios y botones ---------- */
 input,select,textarea{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;width:100%}
+input,textarea{caret-color:var(--blue)}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--blue);outline-offset:-1px;border-color:transparent}
 label{display:block;font-size:13px;color:var(--mut);margin-bottom:12px;font-weight:500}label input,label select,label textarea{margin-top:5px;color:var(--ink)}
 label.chk{display:flex;gap:8px;align-items:center;color:var(--ink)}label.chk input{width:auto;margin:0}

@@ -54,6 +54,17 @@ La **cámara en vivo** solo la permiten los navegadores con **HTTPS** o en `loca
 | **Compras, inventario, caja, reportes, usuarios** | Ingreso con lote y vencimiento, kardex, bajas, cierre de caja, ventas y utilidad, roles cajero / regente / admin. |
 | **Modo oscuro** | Botón en la cabecera (turno nocturno). Recuerda tu elección. |
 
+## Cargar tus productos reales (Excel o CSV)
+
+En **Inventario → Importar de Excel**:
+
+1. Descarga la plantilla (o usa tu propio archivo: se reconocen nombres de columna parecidos, como `producto`, `precio`, `vencimiento`).
+2. Llena **una fila por lote**. Solo son obligatorios `nombre` y `precio_venta`. Para cargar existencias de un lote agrega `lote`, `vence` y `existencia` (en **cajas**, admite 1,5).
+3. Sube el archivo (.xlsx o .csv). Verás una **vista previa exacta** de lo que pasará, fila por fila, sin guardar nada.
+4. Confirma. Los productos y los lotes quedan cargados.
+
+Entiende precios como `$ 24.500` o `12.500,50`, fechas como `2027-06-30`, `30/06/2027` o `06/2027` (último día del mes) y Sí/No en fórmula y control especial. Crea los proveedores que no existan. Si reimportas el mismo archivo no duplica lotes; con "Actualizar los productos que ya existen" cambia precios, costos y mínimos.
+
 ## Configurar WhatsApp
 
 Por defecto el modo es `simulado`: los mensajes se registran pero no se envían. Para enviar de verdad:

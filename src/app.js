@@ -12,6 +12,7 @@ const escaneo = require('./escaneo');
 const proveedores = require('./proveedores');
 const clientes = require('./clientes');
 const asistente = require('./asistente');
+const importador = require('./importar');
 const { guardarImagen, rutaImagen } = require('./archivos');
 
 const { HttpError } = inv;
@@ -100,6 +101,8 @@ function crearApp() {
     return { ok: true };
   }));
   api.delete('/productos/:id', staff, wrap(req => { db.prepare('UPDATE productos SET activo = 0 WHERE id = ?').run(req.params.id); return { ok: true }; }));
+
+  api.post('/importar', staff, wrap(req => importador.importar(req.body, req.user)));
 
   // ---------- Proveedores ----------
   api.get('/proveedores', wrap(() => db.prepare('SELECT * FROM proveedores WHERE activo = 1 ORDER BY nombre').all()));

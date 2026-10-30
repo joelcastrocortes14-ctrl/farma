@@ -331,3 +331,60 @@ test('cierre de caja calcula efectivo esperado y diferencia', async () => {
   assert.equal(cierre.body.diferencia, -1000);
   assert.equal(cierre.body.estado, 'cerrada');
 });
+
+test('importar: vista previa no guarda, aplicar crea productos, lotes y proveedores', async () => {
+  const fila = (n, datos) => ({ fila: n, datos });
+  const filas = [
+    fila(2, { 'Código': 'IM1', Producto: 'Importado Uno', Fórmula: 'No', 'Unidades por empaque': 100, 'Precio de venta': '12.500', Costo: '$ 7.000,50', 'Stock mínimo': 2, Proveedor: 'Proveedor Nuevo SAS', Lote: 'L-A', Vencimiento: '03/2031', Existencia: 2 }),
+    fila(3, { 'Código': 'IM1', Producto: 'Importado Uno', Lote: 'L-B', Vencimiento: '15/08/2030', Existencia: '1,5' }),              // otro lote del mismo producto
+    fila(4, { 'Código': 'IM2', Producto: 'Importado Rx', Fórmula: 'Sí', Control: 'Sí', 'Precio de venta': 20000, Lote: 'R1', Vencimiento: 47500, Existencia: 1 }), // serie de Excel
+    fila(5, { Producto: 'Sin precio' }),                                                                                           // error
+    fila(6, { 'Código': 'IM3', Producto: 'Fecha mala', 'Precio de venta': 5000, Lote: 'X', Vencimiento: '31/02/2030', Existencia: 1 }), // aviso: producto sí, lote no
+    fila(7, { 'Código': 'IM4', Producto: 'Lote vencido', 'Precio de venta': 5000, Lote: 'V', Vencimiento: '2020-01-01', Existencia: 2 }),
+    fila(8, {}),                                                                                                                    // vacía
+  ];
+  const antes = db.prepare('SELECT COUNT(*) n FROM productos').get().n;
+  assert.equal((await cajero.post('/importar', { filas })).status, 403);
+  const prev = (await regente.post('/importar', { filas, aplicar: false })).body;
+  assert.equal(prev.aplicado, false);
+  assert.equal(prev.productos_nuevos, 4);
+  assert.equal(prev.filas_error, 1);
+  assert.equal(prev.lotes, 4);                                                                        // L-A, L-B, R1, V (X no)
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM productos').get().n, antes, 'la vista previa no guarda nada');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM proveedores WHERE nombre = 'Proveedor Nuevo SAS'").get().n, 0);
+
+  const r = (await regente.post('/importar', { filas, aplicar: true })).body;
+  assert.equal(r.aplicado, true);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM productos').get().n, antes + 4);
+  const p1 = db.prepare("SELECT * FROM productos WHERE codigo = 'IM1'").get();
+  assert.equal(p1.precio_venta, 12500);
+  assert.equal(p1.costo, 7000.5);
+  assert.equal(p1.factor, 100);
+  assert.equal(db.prepare('SELECT nombre FROM proveedores WHERE id = ?').get(p1.proveedor_id).nombre, 'Proveedor Nuevo SAS');
+  const lotes = db.prepare('SELECT lote, vence, cantidad FROM lotes WHERE producto_id = ? ORDER BY lote').all(p1.id);
+  assert.deepEqual(lotes.map(l => [l.lote, l.vence, l.cantidad]), [['L-A', '2031-03-31', 200], ['L-B', '2030-08-15', 150]]);   // MM/AAAA -> fin de mes; 1,5 empaques = 150 u
+  const rx = db.prepare("SELECT * FROM productos WHERE codigo = 'IM2'").get();
+  assert.equal(rx.control_especial, 1);
+  assert.equal(rx.requiere_formula, 1);
+  assert.match(db.prepare('SELECT vence FROM lotes WHERE producto_id = ?').get(rx.id).vence, /^2030-0\d-\d\d$/);                  // serie 47500
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM lotes WHERE lote = 'X'").get().n, 0);
+  const malaFecha = r.filas.find(f => f.fila === 6);
+  assert.equal(malaFecha.estado, 'aviso');
+  assert.match(malaFecha.mensajes.join(' '), /no se entiende/);
+  assert.match(r.filas.find(f => f.fila === 7).mensajes.join(' '), /ya está vencido/);
+  assert.match(r.filas.find(f => f.fila === 5).mensajes.join(' '), /Falta el precio/);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM movimientos WHERE tipo = 'inventario_inicial'").get().n, 4);
+});
+
+test('importar: reimportar no duplica lotes y "actualizar" cambia precios', async () => {
+  const filas = [{ fila: 2, datos: { Código: 'IM1', Producto: 'Importado Uno', Precio: 13000, Lote: 'L-A', Vencimiento: '03/2031', Existencia: 2 } }];
+  const sin = (await regente.post('/importar', { filas, aplicar: true })).body;
+  assert.equal(sin.lotes, 0);
+  assert.match(sin.filas[0].mensajes.join(' '), /ya existe/);
+  assert.equal(db.prepare("SELECT precio_venta FROM productos WHERE codigo = 'IM1'").get().precio_venta, 12500);   // no se pisa sin pedirlo
+  const con = (await regente.post('/importar', { filas, actualizar: true, aplicar: true })).body;
+  assert.equal(con.productos_actualizados, 1);
+  assert.equal(db.prepare("SELECT precio_venta FROM productos WHERE codigo = 'IM1'").get().precio_venta, 13000);
+  assert.equal((await regente.post('/importar', { filas: [] })).status, 400);
+  assert.equal((await regente.post('/importar', { filas: [{ fila: 2, datos: { Cosa: 'x' } }] })).status, 400);
+});
