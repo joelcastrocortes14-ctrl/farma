@@ -10,6 +10,10 @@ const cop = n => '$' + Math.round(n || 0).toLocaleString('es-CO');
 const hoy = () => new Date().toLocaleDateString('en-CA');
 const num = v => Number(v) || 0;
 const ic = n => new Safe(`<svg class="ic"><use href="#i-${n}"/></svg>`);
+const fotoHtml = (p, grande) => p.tiene_foto || p.foto ? html`<img class="thumb ${grande ? 'lg' : ''}" src="/api/productos/${p.id ?? p.producto_id}/foto" alt="" loading="lazy">` : html`<div class="thumb ph ${grande ? 'lg' : ''}">${ic('pill')}</div>`;
+const semDot = c => html`<span class="sem ${c}" title="${c}"></span>`;
+const semLote = e => e === 'vencido' || e === 'critico' ? 'rojo' : e === 'atencion' ? 'amarillo' : 'verde';
+const ticketNo = id => 'VT-' + String(id).padStart(6, '0');
 
 function toast(msg, err) {
   const t = document.createElement('div'); t.className = 'toast' + (err ? ' err' : ''); t.textContent = msg;
@@ -35,17 +39,20 @@ const diasBadge = l => l.estado === 'vencido' ? html`<span class="badge red">Ven
 const nivelBadge = n => html`<span class="badge ${n === 'agotado' ? 'red' : n === 'critico' ? 'amb' : 'grn'}">${n}</span>`;
 
 /* ---------- estado y navegación ---------- */
-const S = { user: null, cart: [], clienteId: '' };
+const S = { user: null, cart: [], clienteId: '', receta: null };
+const TODOS = ['admin', 'regente', 'cajero'], STAFF = ['admin', 'regente'];
 const VISTAS = [
-  ['inicio', 'home', 'Inicio', ['admin', 'regente', 'cajero']],
-  ['pos', 'cart', 'Punto de venta', ['admin', 'regente', 'cajero']],
-  ['vencimientos', 'calendar', 'Vencimientos', ['admin', 'regente', 'cajero']],
-  ['stock', 'trend', 'Stock y alertas', ['admin', 'regente', 'cajero']],
-  ['inventario', 'package', 'Inventario', ['admin', 'regente', 'cajero']],
-  ['compras', 'truck', 'Compras', ['admin', 'regente']],
-  ['clientes', 'users', 'Clientes / fiado', ['admin', 'regente', 'cajero']],
-  ['caja', 'cash', 'Caja', ['admin', 'regente', 'cajero']],
-  ['reportes', 'chart', 'Reportes', ['admin', 'regente']],
+  ['inicio', 'home', 'Inicio', TODOS],
+  ['pos', 'cart', 'Vender', TODOS],
+  ['recetas', 'file', 'Recetas', TODOS],
+  ['vencimientos', 'calendar', 'Vencimientos', TODOS],
+  ['stock', 'trend', 'Pedidos y alertas', TODOS],
+  ['inventario', 'package', 'Inventario', TODOS],
+  ['compras', 'inbox', 'Compras', STAFF],
+  ['proveedores', 'truck', 'Proveedores', STAFF],
+  ['clientes', 'users', 'Clientes', TODOS],
+  ['caja', 'cash', 'Caja', TODOS],
+  ['reportes', 'chart', 'Reportes', STAFF],
   ['config', 'sliders', 'Configuración', ['admin']],
 ];
 const V = {};
@@ -55,10 +62,11 @@ async function entrar(user) {
   S.user = user; $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
   $('#quien').textContent = `${user.nombre} · ${user.rol}`;
   const nav = $('#nav');
-  nav.innerHTML = html`<div class="brand"><img src="logo-mark.svg" alt=""><span>${user.negocio || 'FarmaBarrio'}</span></div>${VISTAS.filter(v => v[3].includes(user.rol)).map(v => html`<a data-v="${v[0]}">${ic(v[1])} ${v[2]} ${v[0] === 'stock' ? html`<span class="badge amb hidden" id="navStock"></span>` : ''}</a>`)}
+  nav.innerHTML = html`<div class="brand"><img src="logo-mark.svg" alt=""><div><b>Vital<i>Track</i></b><small>${user.negocio || ''}</small></div></div>${VISTAS.filter(v => v[3].includes(user.rol)).map(v => html`<a data-v="${v[0]}">${ic(v[1])} ${v[2]} ${v[0] === 'stock' ? html`<span class="badge amb hidden" id="navStock"></span>` : ''}</a>`)}
     <a data-v="__salir" style="margin-top:20px">${ic('logout')} Salir</a>`.s;
   go((location.hash || '#inicio').slice(1));
   refrescarBadge();
+  if (window.initExtras) initExtras();
 }
 async function refrescarBadge() {
   try { const n = (await GET('/stock-critico')).length; const b = $('#navStock'); if (b) { b.textContent = n; b.classList.toggle('hidden', !n); } } catch {}
@@ -86,27 +94,30 @@ window.addEventListener('load', async () => { try { entrar(await GET('/me')); } 
 V.inicio = async el => {
   const d = await GET('/dashboard');
   const max = Math.max(1, ...d.ventas_7d.map(x => x.total));
+  const hayRojo = d.lotes_vencidos > 0 || d.lotes_criticos > 0;
   el.innerHTML = html`
-  <div class="grid kpis">
-    <div class="card kpi grn"><div class="l">Ventas de hoy</div><div class="n">${cop(d.ventas_hoy)}</div><div class="l">${d.num_ventas_hoy} ventas</div></div>
-    <div class="card kpi"><div class="l">Utilidad de hoy</div><div class="n">${cop(d.utilidad_hoy)}</div></div>
-    <div class="card kpi red"><div class="l">Lotes vencidos en bodega</div><div class="n">${d.lotes_vencidos}</div></div>
-    <div class="card kpi amb"><div class="l">Lotes por vencer (≤ 30 d)</div><div class="n">${d.lotes_criticos}</div></div>
-    <div class="card kpi red"><div class="l">Dinero en riesgo por vencimiento</div><div class="n">${cop(d.valor_en_riesgo)}</div></div>
-    <div class="card kpi amb"><div class="l">Stock crítico</div><div class="n">${d.stock_critico}</div><div class="l">${d.agotados} agotados</div></div>
-    <div class="card kpi"><div class="l">Cartera (fiado)</div><div class="n">${cop(d.cartera)}</div></div>
+  <div class="grid cards4">
+    <a class="card big" data-go="inventario"><div class="top"><span class="ico blue">${ic('package')}</span>Total de productos</div><div class="n">${d.total_productos}</div><div class="sub">en tu catálogo</div></a>
+    <a class="card big alerta ${hayRojo ? 'rojo' : ''}" data-go="vencimientos"><div class="top"><span class="ico ${hayRojo ? 'red' : 'amb'}">${ic('alert')}</span>Por vencer</div><div class="n">${d.por_vencer}</div><div class="sub">${d.lotes_vencidos} vencidos · ${d.lotes_criticos} en 30 días · ${cop(d.valor_en_riesgo)} en riesgo</div></a>
+    <a class="card big ${d.stock_bajo ? 'alerta' : ''}" data-go="stock"><div class="top"><span class="ico amb">${ic('trend')}</span>Stock bajo</div><div class="n">${d.stock_bajo}</div><div class="sub">${d.agotados} agotados · ${d.pedido_sugerido} por pedir</div></a>
+    <a class="card big" data-go="reportes"><div class="top"><span class="ico green">${ic('cash')}</span>Ventas del día</div><div class="n">${cop(d.ventas_hoy)}</div><div class="sub">${d.num_ventas_hoy} ventas · utilidad ${cop(d.utilidad_hoy)}</div></a>
   </div>
-  <div class="grid two" style="margin-top:14px">
+  <button class="panic" id="panic">${ic('alert')} ¿Qué vence esta semana? <small>${d.vencen_semana ? d.vencen_semana + ' lote(s) requieren acción' : 'nada urgente'}</small></button>
+  <div class="grid two">
     <div class="card"><h3>Vencimientos prioritarios</h3>
-      <div class="tw"><table><tbody>${d.top_vencer.map(l => html`<tr><td>${l.nombre}<div class="mut">Lote ${l.lote} · ${l.cantidad} u</div></td><td>${diasBadge(l)}</td><td class="mut">${l.accion}</td></tr>`)}
-      ${d.top_vencer.length ? '' : html`<tr><td class="mut">Todo en orden ${ic('check')}</td></tr>`}</tbody></table></div></div>
-    <div class="card"><h3>Stock crítico</h3>
-      <div class="tw"><table><tbody>${d.top_stock.map(p => html`<tr><td>${p.nombre}<div class="mut">${p.motivo}</div></td><td>${nivelBadge(p.nivel)}</td><td class="r">pedir ${p.sugerido_empaques}</td></tr>`)}
-      ${d.top_stock.length ? '' : html`<tr><td class="mut">Todo en orden ${ic('check')}</td></tr>`}</tbody></table></div></div>
+      <div class="tw"><table><tbody>${d.top_vencer.map(l => html`<tr><td>${semDot(semLote(l.estado))}</td><td><b>${l.nombre}</b><div class="mut">Lote ${l.lote} · ${l.cantidad} u</div></td><td>${diasBadge(l)}</td></tr>`)}
+      ${d.top_vencer.length ? '' : html`<tr><td class="mut">${ic('check')} Todo en orden</td></tr>`}</tbody></table></div></div>
+    <div class="card"><h3>Qué pedir</h3>
+      <div class="tw"><table><tbody>${d.top_stock.map(p => html`<tr><td><b>${p.nombre}</b><div class="mut">${p.sugerencia || p.motivo}</div></td><td>${urgBadge(p)}</td><td class="r"><b>${p.sugerido_empaques}</b> emp</td></tr>`)}
+      ${d.top_stock.length ? '' : html`<tr><td class="mut">${ic('check')} Todo en orden</td></tr>`}</tbody></table></div></div>
     <div class="card"><h3>Ventas últimos 7 días</h3>
-      ${d.ventas_7d.map(x => html`<div class="row" style="margin:6px 0"><span class="mut" style="width:78px">${x.dia.slice(5)}</span><div class="bar grow"><i style="width:${(x.total / max * 100).toFixed(0)}%"></i></div><b style="width:96px;text-align:right">${cop(x.total)}</b></div>`)}</div>
+      ${d.ventas_7d.map(x => html`<div class="row" style="margin:8px 0"><span class="mut" style="width:56px">${x.dia.slice(5)}</span><div class="bar grow"><i style="width:${(x.total / max * 100).toFixed(0)}%"></i></div><b style="width:100px;text-align:right">${cop(x.total)}</b></div>`)}
+      <p class="mut" style="margin-bottom:0">Cartera por cobrar: <b>${cop(d.cartera)}</b></p></div>
   </div>`.s;
+  $$('[data-go]').forEach(a => a.onclick = () => go(a.dataset.go));
+  $('#panic').onclick = () => panico();
 };
+const urgBadge = p => p.nivel === 'agotado' ? html`<span class="badge red">Agotado</span>` : p.urgencia === 'hoy' ? html`<span class="badge red">Pide hoy</span>` : p.urgencia === 'manana' ? html`<span class="badge amb">Pide mañana</span>` : html`<span class="badge blu">Pronto</span>`;
 
 /* ---------- Punto de venta ---------- */
 const MEDIOS = ['efectivo', 'tarjeta', 'transferencia', 'fiado'];
@@ -117,29 +128,30 @@ const lineTotal = l => Math.round(unidades(l) * unitPrice(l) * (1 - l.pct / 100)
 V.pos = async el => {
   const caja = await GET('/caja');
   if (!caja) {
-    el.innerHTML = html`<div class="card" style="max-width:380px"><h3>Abrir caja</h3><p class="mut">Necesitas abrir caja para vender.</p>
+    el.innerHTML = html`<div class="card" style="max-width:400px"><h3>Abrir caja</h3><p class="mut">Necesitas abrir caja para vender.</p>
       <form id="fAbrir"><label>Base en efectivo<input name="base" type="number" min="0" value="0"></label><button class="btn primary">Abrir caja</button></form></div>`.s;
     $('#fAbrir').onsubmit = guard(async e => { e.preventDefault(); await POST('/caja/abrir', { base: num(formData(e.target).base) }); toast('Caja abierta'); go('pos'); });
     return;
   }
   const clientes = await GET('/clientes');
   el.innerHTML = html`<div class="pos">
-    <div class="card"><input id="q" placeholder="Escanea el código o escribe nombre / principio activo…" autocomplete="off" autofocus><div id="res" class="res"></div></div>
+    <div class="card"><div class="row"><input id="q" class="grow" placeholder="Escribe &quot;acetam&quot; o escanea el código…" autocomplete="off" autofocus><button class="btn" id="cam" title="Escanear con la cámara del celular">${ic('camera')} Cámara</button></div><div id="res" class="res"></div></div>
     <div class="card"><h3>Venta</h3><div id="cart"></div>
-      <div class="row" style="margin-top:10px"><label class="grow">Cliente<select id="cli"><option value="">Mostrador</option>${clientes.map(c => html`<option value="${c.id}" ${String(c.id) === String(S.clienteId) ? 'selected' : ''}>${c.nombre}${c.saldo ? ` (debe ${cop(c.saldo)})` : ''}</option>`)}</select></label>
+      <div class="row" style="margin-top:12px"><label class="grow">Cliente<select id="cli"><option value="">Mostrador</option>${clientes.map(c => html`<option value="${c.id}" ${String(c.id) === String(S.clienteId) ? 'selected' : ''}>${c.nombre}${c.saldo ? ` (debe ${cop(c.saldo)})` : ''}</option>`)}</select></label>
       <label class="grow">Pago<select id="pago">${MEDIOS.map(m => html`<option>${m}</option>`)}</select></label></div>
-      <div id="formula"></div>
+      <div id="recetaBox"></div>
       <div class="row sp" style="margin-top:6px"><div><div class="mut" id="desc"></div><div class="tot" id="total">$0</div></div>
-      <div class="row"><button class="btn" id="vaciar">Vaciar</button><button class="btn primary" id="cobrar">Cobrar (F9)</button></div></div>
+      <div class="row"><button class="btn" id="vaciar">Vaciar</button><button class="btn ok" id="cobrar">Cobrar (F9)</button></div></div>
     </div></div>`.s;
 
   const q = $('#q'); let timer;
   const buscar = async () => { const r = await GET('/pos/buscar?q=' + encodeURIComponent(q.value)); pintarRes(r); return r; };
   const pintarRes = r => {
     $('#res').innerHTML = html`${r.map((p, i) => html`<div class="it ${p.stock <= 0 ? 'sin' : ''}" data-i="${i}">
+      ${fotoHtml(p)}${semDot(p.semaforo)}
       <div class="grow"><b>${p.nombre}</b> <span class="mut">${p.presentacion || ''}</span>
       <div>${p.requiere_formula ? html`<span class="badge pur">Fórmula</span> ` : ''}${p.control_especial ? html`<span class="badge red">Control especial</span> ` : ''}${p.promo_pct ? html`<span class="badge amb">Vence ${p.proximo_vence} · −${p.promo_pct}%</span> ` : ''}
-      <span class="mut">Stock: ${stockTxt(p.stock, p.factor)}</span></div></div>
+      <span class="mut">${p.stock > 0 ? `Stock: ${stockTxt(p.stock, p.factor)} · sale primero lote ${p.proximo_lote} (vence ${p.proximo_vence})` : 'SIN existencias vendibles'}</span></div></div>
       <div style="text-align:right"><b>${cop(p.precio_empaque)}</b>${p.factor > 1 ? html`<div class="mut">${cop(p.precio_unidad)} c/u</div>` : ''}</div></div>`)}`.s;
     $$('#res .it').forEach(n => n.onclick = () => { agregar(r[n.dataset.i]); q.value = ''; $('#res').innerHTML = ''; q.focus(); });
   };
@@ -151,18 +163,33 @@ V.pos = async el => {
     if (exacto || r.length === 1) { agregar(exacto || r[0]); q.value = ''; $('#res').innerHTML = ''; }
     else if (!r.length) toast('No se encontró el producto', true);
   });
+  $('#cam').onclick = () => abrirEscaner({ titulo: 'Escanear producto', alLeer: guard(async texto => {
+    const info = await GET('/escaneo?c=' + encodeURIComponent(texto));
+    const [p] = await GET('/pos/buscar?q=' + encodeURIComponent(info.codigo));
+    if (info.avisos.length) fichaProducto(info, { agregar: p && p.stock > 0 ? () => { agregar(p); cerrar(); } : null });
+    else { cerrar(); if (p) agregar(p); }
+  }) });
 
   function agregar(p) {
-    if (p.stock <= 0) return toast(`${p.nombre}: sin existencias vendibles`, true);
+    if (p.stock <= 0) return toast(`BLOQUEADO: ${p.nombre} no tiene existencias vendibles (vencido o agotado)`, true);
     const ya = S.cart.find(l => l.p.id === p.id);
     if (ya) ya.cantidad++; else S.cart.push({ p, modo: p.factor > 1 ? 'unidad' : 'empaque', cantidad: 1, pct: p.promo_pct || 0 });
+    toast(`${p.nombre} · lote ${p.proximo_lote} · vence ${p.proximo_vence}`);
     pintarCarrito();
   }
+  // problemas de una línea con fórmula frente a la receta elegida
+  const problemaRx = l => {
+    if (!l.p.requiere_formula || !S.receta) return '';
+    const it = S.receta.items.find(i => i.producto_id === l.p.id);
+    if (!it) return 'No está en la receta';
+    const total = S.cart.filter(x => x.p.id === l.p.id).reduce((s, x) => s + unidades(x), 0);
+    return total > it.saldo ? `La receta solo permite ${it.saldo} u` : '';
+  };
   function pintarCarrito() {
     const total = S.cart.reduce((s, l) => s + lineTotal(l), 0);
     const bruto = S.cart.reduce((s, l) => s + Math.round(unidades(l) * unitPrice(l)), 0);
     $('#cart').innerHTML = S.cart.length ? html`<div class="tw"><table class="cart"><tbody>${S.cart.map((l, i) => html`<tr>
-      <td>${l.p.nombre}${l.p.requiere_formula ? html` <span class="badge pur">Rx</span>` : ''}${unidades(l) > l.p.stock ? html`<div class="error">Solo hay ${stockTxt(l.p.stock, l.p.factor)}</div>` : ''}</td>
+      <td>${l.p.nombre}${l.p.requiere_formula ? html` <span class="badge pur">Rx</span>` : ''}${unidades(l) > l.p.stock ? html`<div class="error">Solo hay ${stockTxt(l.p.stock, l.p.factor)}</div>` : ''}${problemaRx(l) ? html`<div class="error">${problemaRx(l)}</div>` : ''}</td>
       <td style="width:62px"><input type="number" min="1" value="${l.cantidad}" data-i="${i}" data-f="cantidad"></td>
       <td style="width:104px">${l.p.factor > 1 ? html`<select data-i="${i}" data-f="modo"><option value="unidad" ${l.modo === 'unidad' ? 'selected' : ''}>unidad</option><option value="empaque" ${l.modo === 'empaque' ? 'selected' : ''}>empaque</option></select>` : 'unidad'}</td>
       <td style="width:66px"><input type="number" min="0" max="100" value="${l.pct}" title="% descuento" data-i="${i}" data-f="pct"></td>
@@ -170,47 +197,53 @@ V.pos = async el => {
       <td style="width:28px"><button class="btn ghost sm" data-del="${i}">${ic('x')}</button></td></tr>`)}</tbody></table></div>`.s : '<p class="mut">Agrega productos buscándolos o escaneándolos.</p>';
     $('#total').textContent = cop(total);
     $('#desc').textContent = bruto > total ? `Descuento: ${cop(bruto - total)}` : '';
-    $$('#cart [data-f]').forEach(inp => inp.onchange = () => { const l = S.cart[inp.dataset.i]; l[inp.dataset.f] = inp.dataset.f === 'modo' ? inp.value : Math.max(0, num(inp.value)); if (l.cantidad < 1) l.cantidad = 1; pintarCarrito(); });
+    $$('#cart [data-f]').forEach(inp => inp.onchange = () => { const l = S.cart[inp.dataset.i]; l[inp.dataset.f] = inp.dataset.f === 'modo' ? inp.value : Math.max(0, num(inp.value)); if (l.cantidad < 1) l.cantidad = 1; setTimeout(pintarCarrito, 0); }); // diferido: redibujar dentro del evento 'change' provoca re-entrada
     $$('#cart [data-del]').forEach(b => b.onclick = () => { S.cart.splice(b.dataset.del, 1); pintarCarrito(); });
-    pintarFormula();
+    pintarReceta();
   }
-  function pintarFormula() {
-    const rx = S.cart.some(l => l.p.requiere_formula), ctrl = S.cart.some(l => l.p.control_especial);
-    const prev = $('#formula form') ? formData($('#formula form')) : {};
-    $('#formula').innerHTML = rx ? html`<form class="alertbox"><b>${ic('pill')} Venta con fórmula médica${ctrl ? ' — control especial' : ''}</b>
-      <div class="f2" style="margin-top:8px"><label>Paciente *<input name="paciente" value="${prev.paciente || ''}"></label><label>Documento paciente${ctrl ? ' *' : ''}<input name="documento_paciente" value="${prev.documento_paciente || ''}"></label>
-      <label>Médico *<input name="medico" value="${prev.medico || ''}"></label><label>Registro médico *<input name="registro_medico" value="${prev.registro_medico || ''}"></label>
-      <label>N.º de fórmula<input name="numero" value="${prev.numero || ''}"></label><label>Fecha de la fórmula<input name="fecha_formula" type="date" value="${prev.fecha_formula || ''}"></label>
-      <label>Institución<input name="institucion" value="${prev.institucion || ''}"></label></div>${ctrl && S.user.rol === 'cajero' ? html`<div class="error">Control especial: lo debe despachar el regente.</div>` : ''}</form>`.s : '';
+  function pintarReceta() {
+    const rx = S.cart.filter(l => l.p.requiere_formula), box = $('#recetaBox');
+    if (!rx.length) { S.receta = null; box.innerHTML = ''; return; }
+    const r = S.receta;
+    box.innerHTML = r ? html`<div class="alertbox ok"><div class="row sp"><b>${ic('file')} Receta de ${r.paciente}</b><button class="btn sm" id="selReceta">Cambiar</button></div>
+      <div class="mut">Dr(a). ${r.medico} · RM ${r.registro_medico}${r.numero ? ' · N.º ' + r.numero : ''} · vigente hasta ${r.vence}</div>
+      <table>${r.items.map(i => html`<tr><td>${i.nombre}</td><td class="r mut">recetado ${i.cantidad} u</td><td class="r"><b>saldo ${i.saldo} u</b></td></tr>`)}</table></div>`.s
+      : html`<div class="alertbox"><b>${ic('file')} Medicamento con fórmula</b><p class="mut" style="margin:4px 0 10px">Sube o selecciona la receta: el sistema solo deja despachar lo recetado.</p><button class="btn primary" id="selReceta">Seleccionar o registrar receta</button></div>`.s;
+    $('#selReceta').onclick = () => elegirReceta({
+      items: rx.map(l => ({ p: l.p, cantidad: l.cantidad, modo: l.modo })),
+      alElegir: r => { S.receta = r; pintarCarrito(); },
+    });
   }
   pintarCarrito();
   $('#cli').onchange = e => { S.clienteId = e.target.value; };
-  $('#vaciar').onclick = () => { S.cart = []; pintarCarrito(); };
+  $('#vaciar').onclick = () => { S.cart = []; S.receta = null; pintarCarrito(); };
   const cobrar = guard(async () => {
     if (!S.cart.length) return toast('El carrito está vacío', true);
-    const rx = S.cart.some(l => l.p.requiere_formula);
+    if (S.cart.some(l => l.p.requiere_formula) && !S.receta) return toast('Falta la receta: selecciónala o regístrala', true);
     const v = await POST('/ventas', {
       items: S.cart.map(l => ({ producto_id: l.p.id, cantidad: l.cantidad, modo: l.modo, descuento_pct: l.pct })),
-      cliente_id: $('#cli').value ? num($('#cli').value) : null, medio_pago: $('#pago').value,
-      formula: rx ? formData($('#formula form')) : undefined,
+      cliente_id: $('#cli').value ? num($('#cli').value) : null, medio_pago: $('#pago').value, receta_id: S.receta?.id,
     });
-    S.cart = []; refrescarBadge(); recibo(v); go('pos');
+    S.cart = []; S.receta = null; refrescarBadge(); recibo(v); go('pos');
   });
   $('#cobrar').onclick = cobrar;
   document.onkeydown = e => { if (e.key === 'F9' && location.hash === '#pos') { e.preventDefault(); cobrar(); } };
   q.focus();
 };
 
+/* Ticket de venta con lote y vencimiento por línea; se imprime en rollo de 80 mm */
 function recibo(v) {
-  modal(html`<div class="recibo"><h3 style="text-align:center">${(S.user.negocio) || 'Droguería'}</h3>
-    <div>Venta #${v.id} · ${v.fecha.replace('T', ' ')}<br>Atendió: ${v.cajero}${v.cliente ? html`<br>Cliente: ${v.cliente}` : ''}</div><hr>
-    ${v.items.map(i => html`<div class="row sp"><span>${i.cantidad} × ${i.nombre} <span class="mut">(lote ${i.lote})</span></span><b>${cop(i.total)}</b></div>`)}<hr>
+  modal(html`<div class="ticket"><h3>${S.user.negocio || 'VitalTrack'}</h3>
+    <div class="c">TICKET DE VENTA</div><div class="c"><b>${ticketNo(v.id)}</b></div>
+    <div>${v.fecha.replace('T', ' ')}<br>Atendió: ${v.cajero}${v.cliente ? html`<br>Cliente: ${v.cliente}` : ''}</div><hr>
+    ${v.items.map(i => html`<div class="row sp"><span>${i.cantidad} × ${i.nombre}</span><b>${cop(i.total)}</b></div><div class="l2">Lote ${i.lote} · Vence ${i.vence}${i.descuento_pct ? ` · −${i.descuento_pct}%` : ''}</div>`)}<hr>
     ${v.descuento ? html`<div class="row sp"><span>Descuento</span><span>-${cop(v.descuento)}</span></div>` : ''}
+    <div class="row sp"><span>Subtotal</span><span>${cop(v.subtotal)}</span></div>
     <div class="row sp"><span>IVA incluido</span><span>${cop(v.iva)}</span></div>
     <div class="row sp"><b>TOTAL (${v.medio_pago})</b><b>${cop(v.total)}</b></div>
     ${v.formula ? html`<hr><div>Fórmula ${v.formula.numero || ''} · Paciente: ${v.formula.paciente}<br>Dr(a). ${v.formula.medico} · RM ${v.formula.registro_medico}</div>` : ''}
-    <p style="text-align:center" class="mut">¡Gracias por su compra!</p></div>
-    <div class="row noprint"><button class="btn primary" onclick="window.print()">${ic('printer')} Imprimir</button><button class="btn" onclick="cerrar()">Cerrar</button></div>`);
+    <hr><p class="c mut" style="margin:6px 0">Verifique su producto y fecha de vencimiento.<br>Comprobante interno de venta (no es factura electrónica DIAN).</p></div>
+    <div class="row noprint" style="justify-content:center;margin-top:14px"><button class="btn primary" onclick="window.print()">${ic('printer')} Imprimir ticket</button><button class="btn" onclick="cerrar()">Cerrar</button></div>`);
 }
 
 /* ---------- Vencimientos ---------- */
@@ -238,27 +271,28 @@ V.vencimientos = async el => {
   });
 };
 
-/* ---------- Stock y alertas ---------- */
+/* ---------- Pedidos y alertas ---------- */
 V.stock = async el => {
   const staff = S.user.rol !== 'cajero';
-  const [st, pedidos, log, me] = await Promise.all([GET('/stock-critico'), staff ? GET('/alertas/pedidos') : [], staff ? GET('/alertas/log') : [], GET('/me')]);
+  const [st, pedidos, log, me] = await Promise.all([GET('/pedido-sugerido'), staff ? GET('/alertas/pedidos') : [], staff ? GET('/alertas/log') : [], GET('/me')]);
   el.innerHTML = html`
-  <div class="card tw"><h3>Stock crítico</h3><table><thead><tr><th>Producto</th><th>Nivel</th><th class="r">Existencia</th><th class="r">Mín.</th><th class="r">Rot./día</th><th class="r">Cobertura</th><th>Motivo</th><th class="r">Pedir</th></tr></thead><tbody>
-  ${st.map(p => html`<tr><td><b>${p.nombre}</b><div class="mut">${p.proveedor || 'Sin proveedor'}</div></td><td>${nivelBadge(p.nivel)}</td><td class="r">${stockTxt(p.vendible, p.factor)}</td><td class="r">${p.stock_min}</td>
-    <td class="r">${p.rotacion_dia}</td><td class="r">${p.cobertura_dias === null ? '—' : p.cobertura_dias + ' d'}</td><td>${p.motivo}</td><td class="r"><b>${p.sugerido_empaques}</b> emp</td></tr>`)}
-  ${st.length ? '' : html`<tr><td colspan="8" class="mut">Nada crítico ${ic('check')}</td></tr>`}</tbody></table></div>
+  <div class="card tw"><h3>Sugerencia de pedido automática</h3><p class="mut" style="margin-top:-6px">Calculada con lo que realmente vendes por día y lo que demora cada proveedor en entregar.</p>
+  <table><thead><tr><th>Producto</th><th></th><th class="r">Existencia</th><th class="r">Ventas/día</th><th>Se agota</th><th>Qué hacer</th><th class="r">Pedir</th></tr></thead><tbody>
+  ${st.map(p => html`<tr><td><b>${p.nombre}</b><div class="mut">${p.proveedor || 'Sin proveedor'} · entrega en ${p.entrega} d</div></td><td>${urgBadge(p)}</td><td class="r">${stockTxt(p.vendible, p.factor)}</td><td class="r">${p.rotacion_dia}</td>
+    <td>${p.fecha_agota ? p.fecha_agota.slice(5) : '—'}</td><td>${p.sugerencia || p.motivo}</td><td class="r"><b>${p.sugerido_empaques}</b> emp</td></tr>`)}
+  ${st.length ? '' : html`<tr><td colspan="7" class="mut">${ic('check')} Nada por pedir</td></tr>`}</tbody></table></div>
   ${staff ? html`
-  <div class="grid two" style="margin-top:14px">
-    <div class="card"><h3>Pedido sugerido por proveedor</h3>
+  <div class="grid two" style="margin-top:16px">
+    <div class="card"><h3>Pedido por proveedor</h3>
       ${pedidos.map(g => html`<div class="alertbox"><b>${g.proveedor}</b><pre class="msg">${g.texto}</pre>
         ${g.wa_link ? html`<a class="btn primary sm" target="_blank" rel="noopener" href="${g.wa_link}">${ic('chat')} Enviar pedido por WhatsApp</a>` : html`<span class="mut">Sin teléfono del proveedor</span>`}</div>`)}
       ${pedidos.length ? '' : html`<p class="mut">No hay nada que pedir.</p>`}</div>
     <div class="card"><h3>Alertas por WhatsApp</h3>
-      <p>Proveedor: <span class="badge ${me.whatsapp === 'simulado' ? 'amb' : 'grn'}">${me.whatsapp}</span> ${me.whatsapp === 'simulado' ? html`<span class="mut">— no se envía de verdad; configura WA_PROVIDER (ver README)</span>` : ''}</p>
-      <p class="mut">Revisa solo cada 15 min, avisa cuando aparece un producto nuevo en crítico o un lote por vencer, y manda un resumen diario. No repite el mismo aviso el mismo día.</p>
+      <p>Proveedor de envío: <span class="badge ${me.whatsapp === 'simulado' ? 'amb' : 'grn'}">${me.whatsapp}</span> ${me.whatsapp === 'simulado' ? html`<span class="mut">— no se envía de verdad; configura WA_PROVIDER (ver README)</span>` : ''}</p>
+      <p class="mut">Revisa cada 15 min, avisa cuando aparece un producto nuevo en crítico o un lote por vencer, y manda un resumen diario. No repite el mismo aviso el mismo día.</p>
       <div class="row"><button class="btn" id="prev">Vista previa</button><button class="btn primary" id="enviar">Enviar ahora</button></div><div id="prevOut"></div></div>
   </div>
-  <div class="card tw" style="margin-top:14px"><h3>Historial de alertas enviadas</h3><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Destino</th><th>Estado</th><th>Mensaje</th></tr></thead><tbody>
+  <div class="card tw" style="margin-top:16px"><h3>Historial de alertas enviadas</h3><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Destino</th><th>Estado</th><th>Mensaje</th></tr></thead><tbody>
   ${log.map(l => html`<tr><td>${l.fecha.replace('T', ' ')}</td><td>${l.tipo}</td><td>${l.destino}</td><td><span class="badge ${l.estado === 'enviado' ? 'grn' : l.estado === 'error' ? 'red' : 'amb'}" title="${l.detalle}">${l.estado}</span></td><td><pre class="msg" style="margin:0">${l.mensaje}</pre></td></tr>`)}
   ${log.length ? '' : html`<tr><td colspan="5" class="mut">Aún no hay alertas.</td></tr>`}</tbody></table></div>` : ''}`.s;
   if (!staff) return;
@@ -276,15 +310,17 @@ V.inventario = async el => {
   const staff = S.user.rol !== 'cajero';
   const cargar = async (q = '') => {
     const prods = await GET('/productos?q=' + encodeURIComponent(q));
-    $('#tabla').innerHTML = html`<table><thead><tr><th>Código</th><th>Producto</th><th>Tipo</th><th class="r">Precio</th><th class="r">Costo</th><th class="r">Existencia</th><th class="r">Mín.</th><th></th></tr></thead><tbody>
-      ${prods.map(p => html`<tr><td>${p.codigo || ''}</td><td><b>${p.nombre}</b><div class="mut">${p.presentacion || ''} ${p.laboratorio ? '· ' + p.laboratorio : ''}</div></td>
+    $('#tabla').innerHTML = html`<table><thead><tr><th></th><th>Producto</th><th>Tipo</th><th class="r">Precio</th><th class="r">Existencia</th><th class="r">Mín.</th><th></th></tr></thead><tbody>
+      ${prods.map(p => html`<tr><td>${fotoHtml(p)}</td><td><div class="row" style="gap:8px">${semDot(p.semaforo)}<b>${p.nombre}</b></div><div class="mut">${p.presentacion || ''} ${p.laboratorio ? '· ' + p.laboratorio : ''}${p.semaforo !== 'verde' ? html`<br><span class="${p.semaforo === 'rojo' ? 'badge red' : 'badge amb'}">${p.semaforo_motivo}</span>` : ''}</div></td>
         <td>${p.control_especial ? html`<span class="badge red">Control</span>` : p.requiere_formula ? html`<span class="badge pur">Fórmula</span>` : html`<span class="badge">Libre</span>`}</td>
-        <td class="r">${cop(p.precio_venta)}</td><td class="r">${cop(p.costo)}</td><td class="r">${stockTxt(p.stock, p.factor)}</td><td class="r">${p.stock_min}</td>
-        <td class="r"><button class="btn sm" data-lotes="${p.id}">Lotes</button> ${staff ? html`<button class="btn sm" data-edit="${p.id}">Editar</button>` : ''}</td></tr>`)}</tbody></table>`.s;
-    $$('[data-lotes]').forEach(b => b.onclick = guard(() => verLotes(prods.find(p => p.id == b.dataset.lotes))));
+        <td class="r">${cop(p.precio_venta)}</td><td class="r">${stockTxt(p.stock, p.factor)}</td><td class="r">${p.stock_min}</td>
+        <td class="r"><button class="btn sm" data-ver="${p.id}">Ver</button> ${staff ? html`<button class="btn sm" data-edit="${p.id}">Editar</button>` : ''}</td></tr>`)}</tbody></table>`.s;
+    $$('[data-ver]').forEach(b => b.onclick = guard(async () => fichaProducto(await GET('/escaneo?id=' + b.dataset.ver), { kardex: staff })));
     $$('[data-edit]').forEach(b => b.onclick = () => editar(prods.find(p => p.id == b.dataset.edit)));
   };
-  el.innerHTML = html`<div class="row sp" style="margin-bottom:12px"><input id="busca" class="grow" placeholder="Buscar por nombre, código o principio activo…" style="max-width:420px">${staff ? html`<button class="btn primary" id="nuevo">+ Nuevo producto</button>` : ''}</div><div class="card tw" id="tabla"></div>`.s;
+  el.innerHTML = html`<div class="row sp" style="margin-bottom:14px"><input id="busca" class="grow" placeholder="Buscar por nombre, código, principio activo o categoría…" style="max-width:460px">${staff ? html`<button class="btn primary" id="nuevo">${ic('plus')} Nuevo producto</button>` : ''}</div>
+    <div class="row" style="margin-bottom:12px"><span class="mut">Semáforo:</span><span class="badge grn">${semDot('verde')} Bien</span><span class="badge amb">${semDot('amarillo')} Vence en ≤ 3 meses o se agota pronto</span><span class="badge red">${semDot('rojo')} Vence en ≤ 30 días, vencido o stock bajo</span></div>
+    <div class="card tw" id="tabla"></div>`.s;
   let t; $('#busca').oninput = e => { clearTimeout(t); t = setTimeout(guard(() => cargar(e.target.value)), 200); };
   if (staff) $('#nuevo').onclick = () => editar(null);
   await cargar();
@@ -292,9 +328,11 @@ V.inventario = async el => {
   async function editar(p) {
     const provs = await GET('/proveedores'); p = p || { factor: 1, iva: 0, precio_venta: 0, costo: 0, stock_min: 0 };
     const i = (n, l, extra = '') => html`<label>${l}<input name="${n}" value="${p[n] ?? ''}" ${new Safe(extra)}></label>`;
-    modal(html`<h3>${p.id ? 'Editar' : 'Nuevo'} producto</h3><form id="fProd"><div class="f2">
-      ${i('codigo', 'Código de barras')}${i('nombre', 'Nombre *', 'required')}${i('principio_activo', 'Principio activo')}${i('laboratorio', 'Laboratorio')}
-      ${i('presentacion', 'Presentación (ej. Caja x 100 tabletas)')}${i('categoria', 'Categoría')}${i('invima', 'Registro INVIMA')}
+    modal(html`<h3>${p.id ? 'Editar' : 'Nuevo'} producto</h3><form id="fProd">
+      <div class="row" style="margin-bottom:12px">${fotoHtml(p, true)}<label class="grow" style="margin:0">Foto de la caja<input type="file" id="fFoto" accept="image/*"></label></div>
+      <div class="f2">
+      ${i('codigo', 'Código de barras / QR')}${i('nombre', 'Nombre *', 'required')}${i('principio_activo', 'Principio activo')}${i('laboratorio', 'Laboratorio')}
+      ${i('presentacion', 'Presentación (ej. Caja x 100 tabletas)')}${i('categoria', 'Categoría (ej. Antibiótico, Analgésico)')}${i('invima', 'Registro INVIMA')}
       <label>IVA %<select name="iva">${[0, 5, 19].map(v => html`<option ${p.iva == v ? 'selected' : ''}>${v}</option>`)}</select></label>
       ${i('factor', 'Unidades por empaque (para vender suelto)', 'type="number" min="1"')}${i('precio_venta', 'Precio de venta del empaque *', 'type="number" min="0" step="any" required')}
       ${i('precio_unidad', 'Precio por unidad suelta (vacío = automático)', 'type="number" min="0" step="any"')}${i('costo', 'Costo del empaque', 'type="number" min="0" step="any"')}
@@ -306,18 +344,12 @@ V.inventario = async el => {
     $('#fProd').onsubmit = guard(async e => {
       e.preventDefault(); const f = e.target, d = formData(f);
       d.requiere_formula = f.requiere_formula.checked; d.control_especial = f.control_especial.checked;
-      p.id ? await PUT('/productos/' + p.id, d) : await POST('/productos', d);
+      const r = p.id ? await PUT('/productos/' + p.id, d) : await POST('/productos', d);
+      const file = $('#fFoto').files[0];
+      if (file) await PUT(`/productos/${p.id || r.id}/foto`, { imagen: await reducirImagen(file, 800) });
       cerrar(); toast('Producto guardado'); cargar($('#busca').value);
     });
     if (p.id) $('#elim').onclick = guard(async () => { if (confirm('¿Eliminar este producto?')) { await api('DELETE', '/productos/' + p.id); cerrar(); cargar(); } });
-  }
-  async function verLotes(p) {
-    const [lotes, kardex] = await Promise.all([GET(`/productos/${p.id}/lotes`), staff ? GET('/kardex/' + p.id) : []]);
-    const hoyS = hoy();
-    modal(html`<h3>${p.nombre}</h3><h4>Lotes con existencia (orden FEFO)</h4><table><thead><tr><th>Lote</th><th>Vence</th><th class="r">Cantidad</th></tr></thead><tbody>
-      ${lotes.map(l => html`<tr><td>${l.lote}</td><td>${l.vence} ${l.vence < hoyS ? html`<span class="badge red">vencido</span>` : ''}</td><td class="r">${stockTxt(l.cantidad, p.factor)}</td></tr>`)}${lotes.length ? '' : html`<tr><td colspan="3" class="mut">Sin lotes</td></tr>`}</tbody></table>
-      ${staff ? html`<h4>Kardex (últimos movimientos)</h4><div class="tw" style="max-height:240px"><table><tbody>${kardex.map(m => html`<tr><td>${m.fecha.replace('T', ' ')}</td><td>${m.tipo}</td><td>${m.lote || ''}</td><td class="r">${m.cantidad > 0 ? '+' : ''}${m.cantidad}</td><td class="mut">${m.motivo || m.usuario || ''}</td></tr>`)}</tbody></table></div>` : ''}
-      <div class="row"><button class="btn" onclick="cerrar()">Cerrar</button></div>`);
   }
 };
 
@@ -338,39 +370,47 @@ V.compras = async el => {
     $$('#lineas [data-del]').forEach(b => b.onclick = () => { lineas.splice(b.dataset.del, 1); if (!lineas.length) lineas = [{}]; pintar(); });
   };
   el.innerHTML = html`<div class="card"><h3>Ingreso de mercancía</h3><form id="fCompra"><div class="f2"><label>Proveedor<select name="proveedor_id"><option value="">—</option>${provs.map(p => html`<option value="${p.id}">${p.nombre}</option>`)}</select></label><label>N.º de factura<input name="factura"></label></div>
-    <div id="lineas" class="tw"></div><div class="row"><button type="button" class="btn" id="mas">+ Línea</button><button class="btn primary">Registrar ingreso</button><button type="button" class="btn" id="nprov">+ Proveedor</button></div></form></div>
+    <div id="lineas" class="tw"></div><div class="row"><button type="button" class="btn" id="mas">${ic('plus')} Línea</button><button class="btn primary">Registrar ingreso</button><button type="button" class="btn" id="nprov">${ic('plus')} Proveedor</button></div></form></div>
     <div class="card tw" style="margin-top:14px"><h3>Últimas compras</h3><table><thead><tr><th>#</th><th>Fecha</th><th>Proveedor</th><th>Factura</th><th class="r">Total</th></tr></thead><tbody>${hist.map(c => html`<tr><td>${c.id}</td><td>${c.fecha.replace('T', ' ')}</td><td>${c.proveedor || ''}</td><td>${c.factura || ''}</td><td class="r">${cop(c.total)}</td></tr>`)}</tbody></table></div>`.s;
   pintar();
   $('#mas').onclick = () => { lineas.push({}); pintar(); };
   $('#fCompra').onsubmit = guard(async e => {
     e.preventDefault(); const d = formData(e.target);
     const items = lineas.filter(l => l.producto_id).map(l => ({ producto_id: num(l.producto_id), lote: l.lote, vence: l.vence, cantidad: num(l.cantidad), costo: num(l.costo) }));
-    await POST('/compras', { proveedor_id: d.proveedor_id ? num(d.proveedor_id) : null, factura: d.factura, items });
-    toast('Mercancía ingresada'); V.compras(el); refrescarBadge();
+    const r = await POST('/compras', { proveedor_id: d.proveedor_id ? num(d.proveedor_id) : null, factura: d.factura, items });
+    toast('Mercancía ingresada' + (r.avisos?.length ? ` · se avisó por WhatsApp a ${r.avisos.length} cliente(s)` : '')); V.compras(el); refrescarBadge();
   });
   $('#nprov').onclick = () => {
     modal(html`<h3>Nuevo proveedor</h3><form id="fProv"><label>Nombre *<input name="nombre" required></label><label>Teléfono WhatsApp (573001234567)<input name="telefono"></label><label>Contacto<input name="contacto"></label>
-      <label>Días antes del vencimiento en que aceptan devolución/canje<input name="dias_devolucion" type="number" value="60"></label><div class="row"><button class="btn primary">Guardar</button><button type="button" class="btn" onclick="cerrar()">Cancelar</button></div></form>`);
+      <div class="f2"><label>Días que tarda en llegar el pedido<input name="dias_entrega" type="number" min="0" value="1"></label><label>Días antes de vencer en que aceptan canje<input name="dias_devolucion" type="number" value="60"></label></div><div class="row"><button class="btn primary">Guardar</button><button type="button" class="btn" onclick="cerrar()">Cancelar</button></div></form>`);
     $('#fProv').onsubmit = guard(async e => { e.preventDefault(); await POST('/proveedores', formData(e.target)); cerrar(); V.compras(el); });
   };
 };
 
-/* ---------- Clientes / fiado ---------- */
+/* ---------- Clientes / CRM ---------- */
 V.clientes = async el => {
-  const cl = await GET('/clientes');
-  el.innerHTML = html`<div class="row sp" style="margin-bottom:12px"><span class="mut">Cartera total: <b>${cop(cl.reduce((s, c) => s + c.saldo, 0))}</b></span><button class="btn primary" id="nc">+ Nuevo cliente</button></div>
+  const [cl, av] = await Promise.all([GET('/clientes'), GET('/avisos/pendientes')]);
+  el.innerHTML = html`<div class="row sp" style="margin-bottom:14px"><span class="mut">Cartera total: <b>${cop(cl.reduce((s, c) => s + c.saldo, 0))}</b></span><button class="btn primary" id="nc">${ic('plus')} Nuevo cliente</button></div>
+    ${av.explicitos.length || av.habituales.length ? html`<div class="card" style="margin-bottom:16px"><h3>${ic('chat')} Avisos a clientes</h3>
+      ${av.explicitos.map(a => html`<div class="alertbox ${a.disponible ? 'ok' : ''}"><div class="row sp"><span><b>${a.nombre}</b> pidió que le avisen cuando llegue <b>${a.producto}</b> ${a.disponible ? '(ya hay stock)' : html`<span class="mut">(aún sin stock)</span>`}</span>
+        ${a.disponible ? html`<span class="row"><button class="btn ok sm" data-env="${a.id}">Enviar WhatsApp</button>${a.wa_link ? html`<a class="btn sm" target="_blank" rel="noopener" href="${a.wa_link}">Abrir chat</a>` : ''}</span>` : ''}</div></div>`)}
+      ${av.habituales.map(a => html`<div class="alertbox"><div class="row sp"><span><b>${a.nombre}</b> compra <b>${a.producto}</b> seguido (${a.veces} veces) y acaba de llegar.</span><a class="btn sm" target="_blank" rel="noopener" href="${a.wa_link}">${ic('chat')} Avisarle</a></div></div>`)}</div>` : ''}
     <div class="card tw"><table><thead><tr><th>Cliente</th><th>Documento</th><th>Teléfono</th><th class="r">Saldo</th><th></th></tr></thead><tbody>
-    ${cl.map(c => html`<tr><td><b>${c.nombre}</b></td><td>${c.documento || ''}</td><td>${c.telefono || ''}</td><td class="r">${c.saldo > 0 ? html`<span class="badge amb">${cop(c.saldo)}</span>` : cop(c.saldo)}</td>
-      <td class="r">${c.saldo > 0 ? html`<button class="btn sm" data-ab="${c.id}" data-s="${c.saldo}" data-n="${c.nombre}">Abonar</button> ` : ''}${c.saldo > 0 && c.telefono ? html`<a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/${c.telefono.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${c.nombre}, le recordamos su saldo pendiente de ${cop(c.saldo)}. ¡Gracias!`)}">Recordar</a>` : ''}</td></tr>`)}</tbody></table></div>`.s;
+    ${cl.map(c => html`<tr class="click" data-id="${c.id}"><td><b>${c.nombre}</b></td><td>${c.documento || ''}</td><td>${c.telefono || ''}</td><td class="r">${c.saldo > 0 ? html`<span class="badge amb">${cop(c.saldo)}</span>` : cop(c.saldo)}</td>
+      <td class="r"><button class="btn sm" data-hist="${c.id}">Historial</button> ${c.saldo > 0 ? html`<button class="btn sm" data-ab="${c.id}" data-s="${c.saldo}" data-n="${c.nombre}">Abonar</button>` : ''}</td></tr>`)}</tbody></table></div>`.s;
   $('#nc').onclick = () => {
-    modal(html`<h3>Nuevo cliente</h3><form id="fCli"><label>Nombre *<input name="nombre" required></label><label>Documento<input name="documento"></label><label>Teléfono WhatsApp<input name="telefono"></label><div class="row"><button class="btn primary">Guardar</button><button type="button" class="btn" onclick="cerrar()">Cancelar</button></div></form>`);
+    modal(html`<h3>Nuevo cliente</h3><form id="fCli"><label>Nombre *<input name="nombre" required></label><label>Documento<input name="documento"></label><label>Teléfono WhatsApp (573001234567)<input name="telefono"></label><div class="row"><button class="btn primary">Guardar</button><button type="button" class="btn" onclick="cerrar()">Cancelar</button></div></form>`);
     $('#fCli').onsubmit = guard(async e => { e.preventDefault(); await POST('/clientes', formData(e.target)); cerrar(); V.clientes(el); });
   };
-  $$('[data-ab]').forEach(b => b.onclick = () => {
+  $$('[data-env]').forEach(b => b.onclick = guard(async () => { const r = await POST(`/avisos/${b.dataset.env}/enviar`); toast(r.estado === 'error' ? r.detalle : `Aviso ${r.estado} a ${r.cliente}`, r.estado === 'error'); V.clientes(el); }));
+  $$('[data-ab]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
     modal(html`<h3>Abono de ${b.dataset.n}</h3><p class="mut">Saldo: ${cop(b.dataset.s)}</p><form id="fAb"><label>Valor<input name="valor" type="number" min="1" max="${b.dataset.s}" value="${b.dataset.s}"></label><label>Medio<select name="medio"><option>efectivo</option><option>transferencia</option><option>tarjeta</option></select></label>
       <div class="row"><button class="btn primary">Registrar abono</button><button type="button" class="btn" onclick="cerrar()">Cancelar</button></div></form>`);
     $('#fAb').onsubmit = guard(async e => { e.preventDefault(); const d = formData(e.target); await POST(`/clientes/${b.dataset.ab}/abonos`, { valor: num(d.valor), medio: d.medio }); cerrar(); toast('Abono registrado'); V.clientes(el); });
   });
+  $$('[data-hist]').forEach(b => b.onclick = e => { e.stopPropagation(); historialCliente(b.dataset.hist, () => V.clientes(el)); });
+  $$('tr[data-id]').forEach(tr => tr.onclick = () => historialCliente(tr.dataset.id, () => V.clientes(el)));
 };
 
 /* ---------- Caja ---------- */
@@ -422,7 +462,7 @@ V.config = async el => {
     <label class="chk"><input type="checkbox" name="promo_auto" ${c.promo_auto === '1' ? 'checked' : ''}> Aplicar automáticamente en el POS el descuento sugerido por vencimiento</label>
     <button class="btn primary">Guardar</button></form></div>
   <div class="card tw"><h3>Usuarios</h3><table><tbody>${us.map(u => html`<tr><td><b>${u.nombre}</b><div class="mut">${u.usuario}</div></td><td>${u.rol}</td><td>${u.activo ? '' : html`<span class="badge red">inactivo</span>`}</td><td class="r"><button class="btn sm" data-u="${u.id}">Editar</button></td></tr>`)}</tbody></table>
-  <button class="btn primary" id="nu" style="margin-top:10px">+ Nuevo usuario</button></div></div>`.s;
+  <button class="btn primary" id="nu" style="margin-top:10px">${ic('plus')} Nuevo usuario</button></div></div>`.s;
   $('#fCfg').onsubmit = guard(async e => { e.preventDefault(); const d = formData(e.target); d.promo_auto = e.target.promo_auto.checked ? '1' : '0'; await PUT('/config', d); S.user.negocio = d.nombre_negocio; toast('Configuración guardada'); });
   const userForm = u => {
     modal(html`<h3>${u ? 'Editar' : 'Nuevo'} usuario</h3><form id="fU"><label>Nombre<input name="nombre" value="${u?.nombre || ''}" required></label>${u ? '' : html`<label>Usuario<input name="usuario" required></label>`}

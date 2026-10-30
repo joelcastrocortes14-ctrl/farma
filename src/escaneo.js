@@ -5,12 +5,12 @@ const { HttpError, diasEntre, precioUnidad, semaforoProductos } = require('./inv
  * Consulta por código de barras o QR. El QR de un lote puede traer "CODIGO|LOTE"
  * para verificar además ese lote concreto.
  */
-function consultar(texto) {
+function consultar(texto, id) {
   const raw = String(texto || '').trim();
-  if (!raw) throw new HttpError(400, 'Código vacío');
+  if (!raw && !id) throw new HttpError(400, 'Código vacío');
   const [codigo, loteQR] = raw.includes('|') ? raw.split('|').map(s => s.trim()) : [raw, null];
   const p = db.prepare(`SELECT p.*, pr.nombre AS proveedor, pr.telefono AS proveedor_tel, pr.dias_entrega
-    FROM productos p LEFT JOIN proveedores pr ON pr.id = p.proveedor_id WHERE p.codigo = ? AND p.activo = 1`).get(codigo);
+    FROM productos p LEFT JOIN proveedores pr ON pr.id = p.proveedor_id WHERE ${id ? 'p.id = ?' : 'p.codigo = ?'} AND p.activo = 1`).get(id ? Number(id) : codigo);
   if (!p) throw new HttpError(404, `El código ${codigo} no está registrado en tu inventario`);
 
   const crit = cfgNum('dias_vence_critico'), aten = cfgNum('dias_vence_atencion'), hoyStr = hoy();

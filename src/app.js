@@ -125,7 +125,7 @@ function crearApp() {
   });
 
   // ---------- Escáner, asistente, avisos ----------
-  api.get('/escaneo', wrap(req => escaneo.consultar(req.query.c)));
+  api.get('/escaneo', wrap(req => escaneo.consultar(req.query.c, req.query.id)));
   api.post('/asistente', wrap(req => asistente.preguntar(req.body.pregunta)));
   api.get('/clientes/:id/historial', wrap(req => clientes.historial(Number(req.params.id))));
   api.post('/clientes/:id/avisos', wrap(req => clientes.crearAviso(Number(req.params.id), Number(req.body.producto_id))));

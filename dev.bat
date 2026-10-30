@@ -7,7 +7,8 @@ call npm install --no-audit --no-fund
 if not exist data call npm run seed
 start "auto-pull" /min cmd /c "for /l %%i in (0,0,1) do (git pull --ff-only -q & timeout /t 15 /nobreak >nul)"
 echo.
-echo  FarmaBarrio en http://localhost:3100  (usuario: regente / regente123)
+echo  VitalTrack en http://localhost:3100  (usuario: regente / regente123)
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do echo  Desde el celular (misma red Wi-Fi): http://%%a:3100
 echo  Cierra esta ventana para detener todo.
 echo.
 node --watch --no-warnings src/server.js

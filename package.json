@@ -1,7 +1,7 @@
 {
-  "name": "drogueria-barrio",
+  "name": "vitaltrack",
   "version": "1.0.0",
-  "description": "Sistema de gestión para droguerías de barrio: vencimientos inteligentes, POS con fórmula, alertas por WhatsApp",
+  "description": "VitalTrack: control inteligente de farmacia — vencimientos, POS con recetas, escáner, alertas por WhatsApp",
   "private": true,
   "type": "commonjs",
   "engines": { "node": ">=22.13" },

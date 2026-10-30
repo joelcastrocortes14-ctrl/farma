@@ -1,6 +1,6 @@
-# FarmaBarrio — sistema de gestión para droguerías de barrio
+# VitalTrack — control inteligente de farmacia
 
-Sistema web para una droguería: punto de venta con fórmula médica, control de vencimientos inteligente, alertas de stock crítico por WhatsApp, compras, fiado, caja y reportes. Un solo proceso Node + base SQLite (un archivo), sin servicios externos obligatorios.
+Sistema web para droguerías de barrio: vencimientos inteligentes, venta con receta, escáner con el celular, pedidos automáticos, alertas por WhatsApp, proveedores, clientes, caja y reportes. Un solo proceso Node con una base SQLite (un archivo). Sin servicios externos obligatorios.
 
 ## Arranque rápido
 
@@ -8,65 +8,81 @@ Requiere Node 22.13 o superior.
 
 ```bash
 npm install
-npm run seed     # opcional: datos de demostración (usuarios admin/admin123, regente/regente123, cajero/cajero123)
+npm run seed     # opcional: datos de demostración (admin/admin123, regente/regente123, cajero/cajero123)
 npm start        # http://localhost:3000
 ```
 
-Sin `seed`, el primer arranque crea el usuario `admin` y muestra su contraseña en consola (o usa `ADMIN_PASSWORD=...`). La base queda en `data/drogueria.db`: **haz copia de ese archivo a diario**.
+Sin `seed`, el primer arranque crea el usuario `admin` y muestra su contraseña en consola (o usa `ADMIN_PASSWORD=...`). La base y las fotos quedan en `data/`: **haz copia de esa carpeta a diario**.
 
-Variables útiles: `PORT`, `DB_FILE`, `TZ` (por defecto `America/Bogota`), `COOKIE_SECURE=1` si lo sirves por HTTPS.
+**Windows (desarrollo):** doble clic en `dev.bat`. Trae los cambios de GitHub cada 15 s y reinicia el servidor solo. Abre http://localhost:3100 y pulsa F5 para ver los cambios.
 
-## Desarrollo en Windows
+Variables: `PORT`, `DB_FILE`, `TZ` (por defecto `America/Bogota`), `COOKIE_SECURE=1` con HTTPS, `HTTPS_KEY` + `HTTPS_CERT` para servir por HTTPS.
 
-Doble clic en `dev.bat`: instala dependencias, carga datos demo la primera vez, trae cada 15 s los cambios de GitHub (`git pull`) y reinicia el servidor solo. Abre http://localhost:3100 y pulsa F5 para ver los cambios.
+## Control inteligente
 
-## Módulos
+- **Semáforo por producto, automático:** verde (bien), amarillo (un lote vence en 90 días o menos, o el stock se agotará pronto), rojo (vencido, vence en 30 días o menos, o stock bajo). Cambia solo con las ventas y las fechas. Los umbrales se ajustan en *Configuración*.
+- **Vencimiento inteligente:** cruza la fecha de cada lote con lo que realmente rota el producto y el orden FEFO, para estimar cuántas unidades no alcanzarán a venderse. Calcula el dinero en riesgo y sugiere baja, canje con el proveedor o un descuento que **nunca baja del costo + 2 %**.
+- **Botón "¿Qué vence esta semana?"** en el inicio: lista lo vencido y lo que vence en 7 días, con la acción sugerida.
+- **Sugerencia de pedido automática:** con lo que vendes por día y lo que demora cada proveedor en entregar. Con 20 u/día, 40 en stock y entrega en 1 día, dice *"Pide mañana o te quedas sin stock"*. Genera el pedido por proveedor con enlace de WhatsApp.
+
+## Para no perder plata
+
+- **FIFO/FEFO obligatorio:** el sistema descuenta siempre del lote que vence primero; no se elige a mano.
+- **Vencidos bloqueados:** un lote vencido no se puede facturar. Si solo quedan unidades vencidas, el POS lo dice y bloquea.
+- **Recetas:** se registra la fórmula (con foto) con lo que prescribió el médico. En el POS solo se despacha lo recetado y hasta el saldo de cada medicamento (sirve para despachos parciales). Los de **control especial** exigen documento del paciente y foto, y solo los despacha el regente. Queda un **libro de fórmulas** exportable a CSV.
+- **Lote no registrado:** al escanear un QR de lote (`CODIGO|LOTE`), si ese lote no está en tus compras el sistema lo marca en rojo para que verifiques la procedencia y el registro INVIMA.
+
+## Escáner con el celular
+
+Botón **Escanear** (arriba) y **Cámara** (en el punto de venta). Lee códigos de barras y QR; muestra precio, lote que sale primero, vencimiento y proveedor. En el POS agrega el producto al carrito sin digitar. También funciona con un lector USB.
+
+La **cámara en vivo** solo la permiten los navegadores con **HTTPS** o en `localhost`. Si abres el sistema desde el celular por `http://192.168.x.x:3100`, el sistema te pide **tomar una foto del código** y lo lee igual. Para cámara en vivo en el celular:
+
+1. **Túnel HTTPS rápido:** `cloudflared tunnel --url http://localhost:3100` te da una dirección `https://…` temporal.
+2. **HTTPS local:** crea un certificado con [mkcert](https://github.com/FiloSottile/mkcert) y arranca con `HTTPS_KEY=clave.pem HTTPS_CERT=cert.pem npm start`.
+
+## Más módulos
 
 | Módulo | Qué hace |
 |---|---|
-| **Vencimiento inteligente** | Control por lote. Cruza la fecha de cada lote con la **rotación real** del producto (ventas de las últimas semanas) y el orden FEFO para estimar cuántas unidades *no alcanzarán a venderse*. Clasifica (vencido / crítico / atención), calcula el **dinero en riesgo** y sugiere la acción: baja, canje con el proveedor (según los días de devolución de cada uno) o promoción con descuento escalonado que **nunca baja del costo + 2 %**. |
-| **POS** | Búsqueda por código de barras / nombre / principio activo, venta por **empaque o por unidad suelta** (tabletas), descuentos topados, IVA incluido, efectivo / tarjeta / transferencia / fiado, recibo imprimible. Descuenta siempre del lote que vence primero (FEFO) y **nunca vende lotes vencidos**. Aplica automáticamente el descuento sugerido por vencimiento. |
-| **Venta con fórmula** | Los productos marcados "con fórmula" exigen paciente, médico y registro médico. Los de **control especial** además exigen documento del paciente y solo los despacha el regente/admin. Todo queda en el **libro de fórmulas** (exportable a CSV, con filtro de control especial). |
-| **Stock crítico + WhatsApp** | Alerta si hay menos que el mínimo **o** si, por la rotación, se agotará antes de que llegue un pedido. Calcula cuánto pedir. Manda un mensaje resumen por WhatsApp solo cuando hay novedades (no repite el mismo aviso en el día) más un resumen diario. También arma el **pedido por proveedor** con enlace `wa.me` listo para enviar. |
-| **Compras** | Ingreso de mercancía con lote y vencimiento; rechaza lotes ya vencidos. Actualiza costos. |
-| **Inventario** | Catálogo, lotes, kardex de movimientos, bajas con motivo. |
-| **Clientes / fiado** | Cartera, abonos y recordatorio de cobro por WhatsApp. |
-| **Caja** | Apertura, cierre, efectivo esperado vs. contado, anulación de ventas (regente) que devuelve el stock. |
-| **Reportes** | Ventas, utilidad bruta, más vendidos, medios de pago, libro de fórmulas. |
-| **Usuarios y roles** | `cajero` (vende), `regente` (control especial, anulaciones, compras, bajas), `admin` (todo + configuración). |
+| **Vender (POS)** | Búsqueda inteligente (escribes "acetam" y aparece con su foto), venta por empaque o unidad suelta, descuentos topados, efectivo / tarjeta / transferencia / fiado. |
+| **Ticket** | Con lote y vencimiento de cada línea, listo para rollo de 80 mm. Es un comprobante interno, **no** una factura electrónica DIAN. |
+| **Proveedores** | Quién te vendió, a cuánto, en cuánto tiempo llega, variación de precios y comparación entre proveedores. |
+| **Clientes (CRM)** | Historial, lo que compra seguido y cada cuánto, cartera. Pueden pedir que se les avise cuando llegue un producto: al ingresar la compra se envía el WhatsApp. Los clientes habituales de un producto que llegó se sugieren, pero **no se les escribe solos**. |
+| **Asistente** | Chat que responde preguntas como *"¿qué antibióticos me quedan con stock bajo?"*, *"¿qué vence esta semana?"*, *"¿cuánto vendí hoy?"*. Funciona con reglas sobre tus propios datos: sin servicio externo ni costo. |
+| **Alertas WhatsApp** | Stock crítico y vencimientos, sin repetir el mismo aviso en el día, más resumen diario. |
+| **Compras, inventario, caja, reportes, usuarios** | Ingreso con lote y vencimiento, kardex, bajas, cierre de caja, ventas y utilidad, roles cajero / regente / admin. |
+| **Modo oscuro** | Botón en la cabecera (turno nocturno). Recuerda tu elección. |
 
 ## Configurar WhatsApp
 
-Por defecto el modo es `simulado`: los mensajes se registran en *Stock y alertas → Historial* pero no se envían. Para enviar de verdad elige un proveedor:
+Por defecto el modo es `simulado`: los mensajes se registran pero no se envían. Para enviar de verdad:
 
 **WhatsApp Cloud API (Meta)**
 ```bash
-WA_PROVIDER=meta WA_TOKEN=<token permanente> WA_PHONE_ID=<id del número> npm start
+WA_PROVIDER=meta WA_TOKEN=<token> WA_PHONE_ID=<id del número> npm start
 ```
-Meta solo permite escribir libremente dentro de las 24 h posteriores a un mensaje del usuario. Para avisos automáticos crea una plantilla con **un solo parámetro `{{1}}`** en el cuerpo, apruébala y agrega `WA_TEMPLATE=<nombre> WA_TEMPLATE_LANG=es`. Los avisos llegan al propietario como texto en una sola línea separada por ` | `.
+Meta exige una plantilla aprobada con **un parámetro `{{1}}`** para avisos automáticos: `WA_TEMPLATE=<nombre> WA_TEMPLATE_LANG=es`.
 
 **Twilio**
 ```bash
 WA_PROVIDER=twilio TWILIO_SID=... TWILIO_TOKEN=... TWILIO_FROM=573001234567 npm start
 ```
 
-Luego, en **Configuración**, escribe los números destino (con indicativo, sin `+`, separados por coma) y la hora del resumen diario.
+En **Configuración** escribe los números destino (con indicativo, sin `+`, separados por coma).
 
 ## Pruebas
 
 ```bash
 npm test
 ```
-Cubren login y roles, FEFO, venta fraccionada, rechazo de lotes vencidos y de stock insuficiente, fórmula y control especial, descuentos, fiado y anulación, el cálculo de riesgo de vencimiento, stock crítico, deduplicación de alertas y cierre de caja.
 
-## Despliegue
+## Límites (léelo)
 
-Corre bien en un PC de la tienda o un VPS pequeño. Pon un proxy con HTTPS (Caddy/Nginx) delante y arranca con `COOKIE_SECURE=1`. Para mantenerlo vivo: `systemd` o `pm2`.
-
-## Alcance y límites (léelo)
-
-- **No emite factura electrónica DIAN** ni se integra con SIIGO/Alegra; el recibo es un comprobante interno. Si necesitas facturar electrónicamente, hay que integrar un proveedor tecnológico autorizado.
-- **No trae catálogo de medicamentos ni valida registros INVIMA ni médicos**: los datos los carga la droguería.
-- Los campos del libro de fórmulas y de control especial son una base útil, pero **confirma con tu regente de farmacia / secretaría de salud** si cumplen exactamente los formatos que te exigen (en Colombia, por ejemplo, los libros oficiales de control especial).
-- Una sola sede y una sola base de datos local. No hay sincronización entre sucursales.
-- Los descuentos automáticos por vencimiento son una **sugerencia** calculada con tu historial de ventas; el criterio final (y la devolución al proveedor) sigue siendo del regente.
+- **No detecta medicamentos falsificados.** Lo que hace es marcar lotes que no aparecen en tus compras, productos sin registro INVIMA y lotes vencidos. La verificación real sigue siendo del regente y de las fuentes oficiales.
+- **No emite factura electrónica DIAN.** Para eso hay que integrar un proveedor tecnológico autorizado.
+- El asistente entiende un conjunto de preguntas frecuentes, no cualquier frase. Si no entiende, sugiere ejemplos.
+- No trae catálogo de medicamentos ni fotos: las cargas tú desde *Inventario → Editar*.
+- Confirma con tu regente de farmacia si los campos del libro de fórmulas y de control especial cumplen los formatos que te exigen.
+- Una sola sede, una sola base de datos local.
+- Los descuentos automáticos son una sugerencia calculada con tu historial; el criterio final es del regente.
