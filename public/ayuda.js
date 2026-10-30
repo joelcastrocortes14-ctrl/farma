@@ -61,7 +61,7 @@ const AYUDA = [
   ['Me equivoqué, ¿qué hago?', 'todos', [
     '<b>Una venta mal hecha:</b> el regente la anula desde <b>Caja → Últimas ventas</b>; el stock vuelve al lote y, si era con fórmula, el saldo de la receta también.',
     '<b>Un producto no aparece al vender:</b> revisa en <b>Inventario</b> si tiene existencias vendibles. Si solo quedan lotes vencidos, el sistema lo bloquea.',
-    '<b>El stock no coincide con el conteo:</b> el regente da de baja la diferencia con el motivo "Ajuste por conteo".']],
+    '<b>El stock no coincide con el conteo:</b> abre el producto (Inventario → Ver), pulsa <b>Contar</b> en el lote y escribe lo que hay de verdad. El sistema ajusta la diferencia; si faltaba, cuenta como pérdida.']],
 ];
 
 V.ayuda = async el => {

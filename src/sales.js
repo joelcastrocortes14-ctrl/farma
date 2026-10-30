@@ -232,9 +232,9 @@ function reporteVentas({ desde, hasta }) {
 /** Plata perdida por bajas de inventario (vencido, dañado, devolución…), más lo vencido que sigue en bodega y lo que está en riesgo. */
 function reportePerdidas({ desde, hasta }) {
   const d = desde || hoy().slice(0, 8) + '01', h = hasta || hoy();
-  const filas = db.prepare(`SELECT m.fecha, m.motivo, -m.cantidad AS unidades, p.nombre, l.lote, ROUND(-m.cantidad * l.costo_unidad) AS valor
+  const filas = db.prepare(`SELECT m.fecha, CASE WHEN m.tipo = 'ajuste' THEN 'Faltante en conteo físico' ELSE m.motivo END AS motivo, -m.cantidad AS unidades, p.nombre, l.lote, ROUND(-m.cantidad * l.costo_unidad) AS valor
     FROM movimientos m JOIN productos p ON p.id = m.producto_id JOIN lotes l ON l.id = m.lote_id
-    WHERE m.tipo = 'baja' AND substr(m.fecha, 1, 10) BETWEEN ? AND ? ORDER BY m.id DESC`).all(d, h);
+    WHERE (m.tipo = 'baja' OR (m.tipo = 'ajuste' AND m.cantidad < 0)) AND substr(m.fecha, 1, 10) BETWEEN ? AND ? ORDER BY m.id DESC`).all(d, h);
   const por = new Map();
   for (const f of filas) { const k = f.motivo || 'Sin motivo'; const x = por.get(k) || { motivo: k, unidades: 0, valor: 0, bajas: 0 }; x.unidades += f.unidades; x.valor += f.valor; x.bajas++; por.set(k, x); }
   const venc = analisisVencimientos();

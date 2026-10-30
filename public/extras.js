@@ -58,7 +58,7 @@ async function fichaProducto(i, op = {}) {
   await detenerEscaner();
   const lotesTabla = i.lotes.map(l => html`<tr><td>${l.lote} ${l.lote === i.lote_fefo ? html`<span class="badge blu">Sale primero</span>` : ''}${l.lote === i.lote_consultado ? html`<span class="badge">Escaneado</span>` : ''}</td>
     <td>${l.vence}</td><td>${l.bloqueado ? html`<span class="badge red">VENCIDO · bloqueado</span>` : html`<span class="badge ${l.estado === 'critico' ? 'red' : l.estado === 'atencion' ? 'amb' : 'grn'}">${l.dias} d</span>`}</td>
-    <td class="r">${stockTxt(l.cantidad, i.factor)}</td><td class="mut">${l.proveedor || ''}</td></tr>`);
+    <td class="r">${stockTxt(l.cantidad, i.factor)}</td><td class="mut">${l.proveedor || ''}</td>${op.kardex ? html`<td class="r"><button class="btn sm" data-contar="${l.id}">Contar</button></td>` : ''}</tr>`);
   const fefo = i.lotes.find(l => l.lote === i.lote_fefo);
   modal(html`<div class="row" style="gap:16px;align-items:flex-start;flex-wrap:nowrap">${fotoHtml({ id: i.id, tiene_foto: i.foto }, true)}
     <div class="grow"><div class="row" style="gap:10px">${semDot(i.semaforo)}<h3 style="margin:0">${i.nombre}</h3></div>
@@ -72,13 +72,30 @@ async function fichaProducto(i, op = {}) {
       <div class="card kpi"><div class="l">Lote que sale primero</div><div class="n" style="font-size:21px">${i.lote_fefo || '—'}</div><div class="l">${fefo ? 'vence ' + fefo.vence : 'sin lotes vendibles'}</div></div>
       <div class="card kpi"><div class="l">Existencia vendible</div><div class="n" style="font-size:21px">${stockTxt(i.vendible, i.factor)}</div></div>
       <div class="card kpi"><div class="l">Proveedor</div><div class="n" style="font-size:18px">${i.proveedor || '—'}</div><div class="l">${i.dias_entrega != null ? 'entrega en ' + i.dias_entrega + ' d' : ''}</div></div></div>
-    <div class="tw"><table><thead><tr><th>Lote</th><th>Vence</th><th>Estado</th><th class="r">Cantidad</th><th>Comprado a</th></tr></thead><tbody>${lotesTabla}${i.lotes.length ? '' : html`<tr><td colspan="5" class="mut">Sin lotes con existencia</td></tr>`}</tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Lote</th><th>Vence</th><th>Estado</th><th class="r">Cantidad</th><th>Comprado a</th>${op.kardex ? html`<th></th>` : ''}</tr></thead><tbody>${lotesTabla}${i.lotes.length ? '' : html`<tr><td colspan="6" class="mut">Sin lotes con existencia</td></tr>`}</tbody></table></div>
     <div class="row" style="margin-top:16px">${op.agregar ? html`<button class="btn ok" id="fpAgregar">${ic('cart')} Agregar a la venta</button>` : ''}
       ${op.kardex ? html`<button class="btn" id="fpKardex">Kardex</button><button class="btn" id="fpEtiq">${ic('scan')} Etiquetas QR</button>` : ''}<button class="btn" onclick="cerrar()">Cerrar</button></div>`);
   if (op.agregar) $('#fpAgregar').onclick = op.agregar;
   if (op.kardex) $('#fpKardex').onclick = guard(async () => verKardex(i));
+  if (op.kardex) $$('[data-contar]').forEach(b => b.onclick = () => contarLoteModal(i, i.lotes.find(l => l.id == b.dataset.contar), op));
   if (op.kardex) $('#fpEtiq').onclick = () => etiquetasDe({ producto_id: i.id }, 'Etiquetas · ' + i.nombre);
 }
+/** Conteo físico de un lote: el regente escribe lo que contó y el sistema ajusta la diferencia. */
+function contarLoteModal(i, l, op) {
+  modal(html`<h3>${ic('check')} Contar lote ${l.lote}</h3><p class="mut" style="margin-top:-4px">${i.nombre} · el sistema tiene <b>${stockTxt(l.cantidad, i.factor)}</b> (${l.cantidad} unidades).</p>
+    <form id="fConteo"><div class="f2"><label>Cantidad que contaste<input name="cantidad" type="number" min="0" step="any" required autofocus></label>
+    <label>En<select name="modo"><option value="unidad">unidades</option>${i.factor > 1 ? html`<option value="empaque">empaques (cajas)</option>` : ''}</select></label></div>
+    <p class="mut" id="cnDif"></p><div class="row"><button class="btn primary">Ajustar existencia</button><button type="button" class="btn" id="cnVolver">Cancelar</button></div></form>`);
+  const calc = () => { const f = formData($('#fConteo')), n = num(f.cantidad) * (f.modo === 'empaque' ? i.factor : 1), d = Math.round(n) - l.cantidad;
+    $('#cnDif').textContent = f.cantidad === '' ? '' : d === 0 ? 'Es igual a lo que dice el sistema.' : d > 0 ? `Sobran ${d} unidades: se suman al lote.` : `Faltan ${-d} unidades: se descuentan y cuentan como pérdida.`; };
+  $('#fConteo').oninput = calc;
+  $('#cnVolver').onclick = guard(async () => fichaProducto(await GET('/escaneo?id=' + i.id), op));
+  $('#fConteo').onsubmit = guard(async e => {
+    e.preventDefault(); const r = await POST(`/lotes/${l.id}/conteo`, formData(e.target));
+    toast(`Existencia ajustada (${r.diferencia > 0 ? '+' : ''}${r.diferencia} unidades)`); refrescarBadge(); fichaProducto(await GET('/escaneo?id=' + i.id), op);
+  });
+}
+
 async function verKardex(i) {
   const k = await GET('/kardex/' + i.id);
   modal(html`<h3>Kardex · ${i.nombre}</h3><div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Lote</th><th class="r">Cantidad</th><th>Detalle</th></tr></thead><tbody>

@@ -562,3 +562,25 @@ test('restablecer contraseña desde la terminal', async () => {
     console.log(a.verifyPassword('UnaClave-Segura-9', u.hash), a.verifyPassword('admin123', u.hash), u.clave_demo);`], { cwd: raiz, env, encoding: 'utf8' });
   assert.equal(verifica.trim(), 'true false 0');
 });
+
+test('conteo físico: ajusta sobrantes y faltantes, deja kardex y los faltantes cuentan como pérdida', async () => {
+  const lote = db.prepare("SELECT id, cantidad, costo_unidad, producto_id FROM lotes WHERE lote = 'ETQ1'").get();
+  assert.equal((await cajero.post(`/lotes/${lote.id}/conteo`, { cantidad: 5 })).status, 403);
+  assert.equal((await regente.post(`/lotes/${lote.id}/conteo`, { cantidad: -1 })).status, 400);
+  assert.equal((await regente.post(`/lotes/${lote.id}/conteo`, { cantidad: lote.cantidad })).status, 400);       // sin diferencia
+  assert.equal((await regente.post('/lotes/999999/conteo', { cantidad: 1 })).status, 404);
+  const antesPerdida = (await regente.get('/reportes/perdidas')).body.total;
+  const sobra = (await regente.post(`/lotes/${lote.id}/conteo`, { cantidad: lote.cantidad + 7 })).body;
+  assert.equal(sobra.diferencia, 7);
+  assert.equal(db.prepare('SELECT cantidad FROM lotes WHERE id = ?').get(lote.id).cantidad, lote.cantidad + 7);
+  assert.equal((await regente.get('/reportes/perdidas')).body.total, antesPerdida);                            // un sobrante no es pérdida
+  const falta = (await regente.post(`/lotes/${lote.id}/conteo`, { cantidad: lote.cantidad + 2 })).body;
+  assert.equal(falta.diferencia, -5);
+  const per = (await regente.get('/reportes/perdidas')).body;
+  assert.equal(per.total, antesPerdida + Math.round(5 * lote.costo_unidad));
+  assert.ok(per.por_motivo.some(m => m.motivo === 'Faltante en conteo físico'));
+  const k = (await regente.get('/kardex/' + lote.producto_id)).body.filter(m => m.tipo === 'ajuste');
+  assert.equal(k.length, 2);
+  assert.match(k[0].motivo, /Conteo físico/);
+  assert.equal((await regente.post(`/lotes/${lote.id}/conteo`, { cantidad: 0.4, modo: 'empaque' })).body.ahora, 0);   // las existencias son unidades enteras: 0,4 de un empaque de 1 unidad redondea a 0
+});

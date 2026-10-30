@@ -215,4 +215,24 @@ function ajustarLote({ lote_id, cantidad, motivo, usuario_id }) {
   });
 }
 
-module.exports = { HttpError, diasEntre, precioUnidad, fechaValida, rotacion, analisisVencimientos, stockCritico, sugerenciasPedido, semaforoProductos, stockDe, registrarCompra, ajustarLote };
+/**
+ * Ajuste por conteo físico: deja el lote con la cantidad real contada (en unidades).
+ * Queda en el kardex como "ajuste"; si faltaba producto, cuenta como pérdida en el reporte.
+ */
+function contarLote({ lote_id, cantidad, modo, usuario_id }) {
+  return tx(() => {
+    const l = db.prepare('SELECT l.*, p.factor FROM lotes l JOIN productos p ON p.id = l.producto_id WHERE l.id = ?').get(lote_id);
+    if (!l) throw new HttpError(404, 'Lote no existe');
+    const n = Number(cantidad);
+    if (!(n >= 0) || !Number.isFinite(n)) throw new HttpError(400, 'Escribe la cantidad contada (0 o más)');
+    const real = Math.round(modo === 'empaque' ? n * l.factor : n);
+    const diff = real - l.cantidad;
+    if (diff === 0) throw new HttpError(400, 'La cantidad contada es igual a la del sistema: no hay nada que ajustar');
+    db.prepare('UPDATE lotes SET cantidad = ? WHERE id = ?').run(real, l.id);
+    db.prepare('INSERT INTO movimientos(fecha,tipo,producto_id,lote_id,cantidad,motivo,usuario_id) VALUES(?,?,?,?,?,?,?)')
+      .run(ahora(), 'ajuste', l.producto_id, l.id, diff, `Conteo físico (sistema ${l.cantidad}, contado ${real})`, usuario_id);
+    return { antes: l.cantidad, ahora: real, diferencia: diff };
+  });
+}
+
+module.exports = { HttpError, diasEntre, precioUnidad, fechaValida, rotacion, analisisVencimientos, stockCritico, sugerenciasPedido, semaforoProductos, stockDe, registrarCompra, ajustarLote, contarLote };
