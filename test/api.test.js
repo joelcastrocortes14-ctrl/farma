@@ -334,6 +334,11 @@ test('cierre de caja calcula efectivo esperado y diferencia', async () => {
   const cierre = await cajero.post('/caja/cerrar', { contado: antes.efectivo_esperado - 1000 });
   assert.equal(cierre.body.diferencia, -1000);
   assert.equal(cierre.body.estado, 'cerrada');
+  const aviso = db.prepare("SELECT * FROM alertas_log WHERE tipo = 'cierre' ORDER BY id DESC").all();
+  assert.equal(aviso.length, 2, 'avisa a los dos números configurados');
+  assert.match(aviso[0].mensaje, /Cierre de caja/);
+  assert.match(aviso[0].mensaje, /DIFERENCIA: faltan \$1\.000/);
+  assert.equal(aviso[0].estado, 'simulado');
 });
 
 test('importar: vista previa no guarda, aplicar crea productos, lotes y proveedores', async () => {

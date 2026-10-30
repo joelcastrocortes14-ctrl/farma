@@ -212,7 +212,11 @@ function crearApp() {
   // ---------- Caja ----------
   api.get('/caja', wrap(req => { const c = sales.cajaActual(req.user); return c ? sales.resumenCaja(c.id) : null; }));
   api.post('/caja/abrir', wrap(req => sales.abrirCaja(req.body.base, req.user)));
-  api.post('/caja/cerrar', wrap(req => sales.cerrarCaja(req.body.contado, req.user)));
+  api.post('/caja/cerrar', wrap(async req => {
+    const c = sales.cerrarCaja(req.body.contado, req.user);
+    await alerts.avisarCierre(c).catch(e => console.error('[cierre]', e.message));   // un fallo de WhatsApp no impide cerrar la caja
+    return c;
+  }));
   api.get('/caja/historial', staff, wrap(() => db.prepare('SELECT id FROM cajas ORDER BY id DESC LIMIT 20').all().map(r => sales.resumenCaja(r.id))));
 
   // ---------- Clientes / fiado ----------

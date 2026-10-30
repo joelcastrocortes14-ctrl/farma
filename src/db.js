@@ -118,6 +118,7 @@ const DEFAULTS = {
   dias_vence_critico: '30',
   dias_vence_atencion: '90',
   ventana_rotacion: '60',         // días de historia para calcular rotación
+  aviso_cierre: '1',              // enviar por WhatsApp el resumen al cerrar caja
   promo_auto: '1',                // aplicar descuento sugerido por vencimiento en el POS
   descuento_max_pct: '40',
   receta_vigencia_dias: '30',     // días de validez de una fórmula desde su fecha

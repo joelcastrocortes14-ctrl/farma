@@ -495,6 +495,7 @@ V.config = async el => {
     ${f('dias_reposicion', 'Días que tarda en llegar un pedido', 'type="number" min="1"')}${f('dias_vence_critico', 'Vencimiento crítico (días)', 'type="number"')}${f('dias_vence_atencion', 'Vencimiento en atención (días)', 'type="number"')}
     ${f('ventana_rotacion', 'Días de historia para medir rotación', 'type="number" min="7"')}${f('descuento_max_pct', 'Descuento máximo (%)', 'type="number" max="100"')}
     <label class="chk"><input type="checkbox" name="promo_auto" ${c.promo_auto === '1' ? 'checked' : ''}> Aplicar automáticamente en el POS el descuento sugerido por vencimiento</label>
+    <label class="chk"><input type="checkbox" name="aviso_cierre" ${c.aviso_cierre === '1' ? 'checked' : ''}> Enviar por WhatsApp el resumen al cerrar la caja (ventas y diferencia)</label>
     <button class="btn primary">Guardar</button></form></div>
   <div class="card tw"><h3>Usuarios</h3><table><tbody>${us.map(u => html`<tr><td><b>${u.nombre}</b><div class="mut">${u.usuario}</div></td><td>${u.rol}</td><td>${u.activo ? '' : html`<span class="badge red">inactivo</span>`}</td><td class="r"><button class="btn sm" data-u="${u.id}">Editar</button></td></tr>`)}</tbody></table>
   <button class="btn primary" id="nu" style="margin-top:10px">${ic('plus')} Nuevo usuario</button></div>
@@ -504,7 +505,7 @@ V.config = async el => {
     <table style="margin-top:10px"><tbody>${resp.slice(0, 8).map(r => html`<tr><td>${r.fecha.replace('T', ' ')}</td><td class="mut">${(r.bytes / 1024).toFixed(0)} KB</td><td class="r"><a class="btn sm" href="/api/respaldos/${r.nombre}">${ic('download')} Descargar</a></td></tr>`)}
     ${resp.length ? '' : html`<tr><td class="mut">Aún no hay respaldos. El primero se crea solo.</td></tr>`}</tbody></table></div></div>`.s;
   $('#rb').onclick = guard(async () => { await POST('/respaldos'); toast('Respaldo creado'); V.config(el); });
-  $('#fCfg').onsubmit = guard(async e => { e.preventDefault(); const d = formData(e.target); d.promo_auto = e.target.promo_auto.checked ? '1' : '0'; await PUT('/config', d); S.user.negocio = d.nombre_negocio; toast('Configuración guardada'); });
+  $('#fCfg').onsubmit = guard(async e => { e.preventDefault(); const d = formData(e.target); d.promo_auto = e.target.promo_auto.checked ? '1' : '0'; d.aviso_cierre = e.target.aviso_cierre.checked ? '1' : '0'; await PUT('/config', d); S.user.negocio = d.nombre_negocio; toast('Configuración guardada'); });
   const userForm = u => {
     modal(html`<h3>${u ? 'Editar' : 'Nuevo'} usuario</h3><form id="fU"><label>Nombre<input name="nombre" value="${u?.nombre || ''}" required></label>${u ? '' : html`<label>Usuario<input name="usuario" required></label>`}
       <label>${u ? 'Nueva contraseña (vacío = no cambiar)' : 'Contraseña (mín. 6)'}<input name="password" type="password" ${u ? '' : 'required'} autocomplete="new-password"></label>

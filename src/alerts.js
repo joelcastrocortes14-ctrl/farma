@@ -102,6 +102,24 @@ function iniciarPlanificador() {
   return t;
 }
 
+/** Al cerrar una caja avisa a los números configurados: ventas, efectivo y diferencia. */
+async function avisarCierre(c) {
+  if (cfg('aviso_cierre') !== '1' || !destinos().length) return [];
+  const total = Object.values(c.por_medio).reduce((s, v) => s + v, 0);
+  const dif = c.diferencia ?? 0;
+  const mensaje = `*${cfg('nombre_negocio')}* - Cierre de caja\nCajero: ${c.cajero}\nVentas: ${c.ventas} por ${pesos(total)}\n` +
+    Object.entries(c.por_medio).filter(([, v]) => v).map(([k, v]) => `  ${k}: ${pesos(v)}`).join('\n') +
+    `\nEfectivo esperado: ${pesos(c.efectivo_esperado)} / contado: ${pesos(c.efectivo_contado)}\n` +
+    (dif === 0 ? 'Caja cuadrada.' : `*DIFERENCIA: ${dif > 0 ? 'sobran' : 'faltan'} ${pesos(Math.abs(dif))}*`);
+  const out = [];
+  for (const d of destinos()) {
+    const r = await enviarWhatsApp(d, mensaje);
+    db.prepare('INSERT INTO alertas_log(fecha,tipo,destino,mensaje,estado,detalle) VALUES(?,?,?,?,?,?)').run(ahora(), 'cierre', limpiar(d), mensaje, r.estado, r.detalle);
+    out.push({ destino: d, estado: r.estado });
+  }
+  return out;
+}
+
 /** Qué falta para que WhatsApp envíe de verdad (sin revelar los secretos). */
 function estadoWhatsApp() {
   const p = proveedor(), faltan = [];
@@ -124,4 +142,4 @@ async function mensajePrueba() {
   return { sin_destinos: false, resultados };
 }
 
-module.exports = { estadoWhatsApp, mensajePrueba, revisarAlertas, pedidosSugeridos, iniciarPlanificador, mensajeStock, mensajeVence };
+module.exports = { avisarCierre, estadoWhatsApp, mensajePrueba, revisarAlertas, pedidosSugeridos, iniciarPlanificador, mensajeStock, mensajeVence };
