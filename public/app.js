@@ -290,7 +290,7 @@ V.vencimientos = async el => {
 /* ---------- Pedidos y alertas ---------- */
 V.stock = async el => {
   const staff = S.user.rol !== 'cajero';
-  const [st, pedidos, log, me] = await Promise.all([GET('/pedido-sugerido'), staff ? GET('/alertas/pedidos') : [], staff ? GET('/alertas/log') : [], GET('/me')]);
+  const [st, pedidos, log, me, est] = await Promise.all([GET('/pedido-sugerido'), staff ? GET('/alertas/pedidos') : [], staff ? GET('/alertas/log') : [], GET('/me'), staff ? GET('/alertas/estado') : null]);
   el.innerHTML = html`
   <div class="card tw"><div class="row sp"><h3 style="margin:0">Sugerencia de pedido automática</h3>${staff ? html`<a class="btn sm" href="/api/exportar/pedido">${ic('download')} Excel</a>` : ''}</div><p class="mut" style="margin-top:6px">Calculada con lo que realmente vendes por día y lo que demora cada proveedor en entregar.</p>
   <table><thead><tr><th>Producto</th><th></th><th class="r">Existencia</th><th class="r">Ventas/día</th><th>Se agota</th><th>Qué hacer</th><th class="r">Pedir</th></tr></thead><tbody>
@@ -304,15 +304,22 @@ V.stock = async el => {
         ${g.wa_link ? html`<a class="btn primary sm" target="_blank" rel="noopener" href="${g.wa_link}">${ic('chat')} Enviar pedido por WhatsApp</a>` : html`<span class="mut">Sin teléfono del proveedor</span>`}</div>`)}
       ${pedidos.length ? '' : html`<p class="mut">No hay nada que pedir.</p>`}</div>
     <div class="card"><h3>Alertas por WhatsApp</h3>
-      <p>Proveedor de envío: <span class="badge ${me.whatsapp === 'simulado' ? 'amb' : 'grn'}">${me.whatsapp}</span> ${me.whatsapp === 'simulado' ? html`<span class="mut">— no se envía de verdad; configura WA_PROVIDER (ver README)</span>` : ''}</p>
+      <div class="alertbox ${est.listo ? 'ok' : ''}"><b>${est.listo ? 'WhatsApp listo para enviar' : est.proveedor === 'simulado' ? 'Modo de prueba: los avisos no se envían de verdad' : 'Falta configurar WhatsApp'}</b>
+        <div class="mut" style="margin-top:4px">Proveedor: <b>${est.proveedor}</b> · Números destino: <b>${est.destinos}</b>${est.faltan.length ? html` · Faltan: <b>${est.faltan.join(', ')}</b>` : ''}${est.proveedor === 'meta' && !est.plantilla ? html`<br>Sin plantilla (WA_TEMPLATE): Meta solo entrega el mensaje si la persona te escribió en las últimas 24 h.` : ''}
+        ${est.proveedor === 'simulado' ? html`<br>Para activarlo sigue la sección "Configurar WhatsApp" del README.` : ''}${!est.destinos ? html`<br>Agrega los números en <b>Configuración</b>.` : ''}</div></div>
       <p class="mut">Revisa cada 15 min, avisa cuando aparece un producto nuevo en crítico o un lote por vencer, y manda un resumen diario. No repite el mismo aviso el mismo día.</p>
-      <div class="row"><button class="btn" id="prev">Vista previa</button><button class="btn primary" id="enviar">Enviar ahora</button></div><div id="prevOut"></div></div>
+      <div class="row"><button class="btn" id="prev">Vista previa</button><button class="btn" id="prueba">Mensaje de prueba</button><button class="btn primary" id="enviar">Enviar ahora</button></div><div id="prevOut"></div></div>
   </div>
   <div class="card tw" style="margin-top:16px"><h3>Historial de alertas enviadas</h3><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Destino</th><th>Estado</th><th>Mensaje</th></tr></thead><tbody>
   ${log.map(l => html`<tr><td>${l.fecha.replace('T', ' ')}</td><td>${l.tipo}</td><td>${l.destino}</td><td><span class="badge ${l.estado === 'enviado' ? 'grn' : l.estado === 'error' ? 'red' : 'amb'}" title="${l.detalle}">${l.estado}</span></td><td><pre class="msg" style="margin:0">${l.mensaje}</pre></td></tr>`)}
   ${log.length ? '' : html`<tr><td colspan="5" class="mut">Aún no hay alertas.</td></tr>`}</tbody></table></div>` : ''}`.s;
   if (!staff) return;
   $('#prev').onclick = guard(async () => { const p = await POST('/alertas/vista-previa'); $('#prevOut').innerHTML = html`${p.stock ? html`<pre class="msg">${p.stock}</pre>` : ''}${p.vencimiento ? html`<pre class="msg">${p.vencimiento}</pre>` : ''}${!p.stock && !p.vencimiento ? html`<p class="mut">Nada para avisar hoy.</p>` : ''}`.s; });
+  $('#prueba').onclick = guard(async () => {
+    const r = await POST('/alertas/prueba');
+    if (r.sin_destinos) return toast('Primero agrega los números de WhatsApp en Configuración', true);
+    $('#prevOut').innerHTML = html`${r.resultados.map(x => html`<div class="alertbox ${x.estado === 'error' ? 'rojo' : x.estado === 'enviado' ? 'ok' : ''}"><b>${x.destino}</b>: ${x.estado === 'enviado' ? 'enviado' : x.estado === 'simulado' ? 'simulado (no se envió de verdad)' : 'error'}<div class="mut">${x.detalle}</div></div>`)}`.s;
+  });
   $('#enviar').onclick = guard(async () => {
     const r = await POST('/alertas/revisar', { force: true });
     if (r.sin_destinos) return toast('Configura los números de WhatsApp en Configuración', true);
@@ -456,11 +463,16 @@ V.caja = async el => {
 /* ---------- Reportes ---------- */
 V.reportes = async el => {
   const d = el.dataset.desde || hoy().slice(0, 8) + '01', h = el.dataset.hasta || hoy();
-  const [r, libro] = await Promise.all([GET(`/reportes/ventas?desde=${d}&hasta=${h}`), GET(`/reportes/formulas?desde=${d}&hasta=${h}`)]);
+  const [r, libro, per] = await Promise.all([GET(`/reportes/ventas?desde=${d}&hasta=${h}`), GET(`/reportes/formulas?desde=${d}&hasta=${h}`), GET(`/reportes/perdidas?desde=${d}&hasta=${h}`)]);
   el.innerHTML = html`<form id="fRep" class="row" style="margin-bottom:12px"><label style="margin:0">Desde<input type="date" name="desde" value="${d}"></label><label style="margin:0">Hasta<input type="date" name="hasta" value="${h}"></label><button class="btn primary" style="align-self:end">Ver</button><a class="btn" style="align-self:end" href="/api/exportar/ventas?desde=${d}&hasta=${h}">${ic('download')} Ventas a Excel</a></form>
   <div class="grid kpis"><div class="card kpi grn"><div class="l">Ventas</div><div class="n">${cop(r.total)}</div><div class="l">${r.ventas} tickets</div></div><div class="card kpi"><div class="l">Utilidad bruta</div><div class="n">${cop(r.utilidad)}</div></div><div class="card kpi"><div class="l">Descuentos</div><div class="n">${cop(r.descuentos)}</div></div><div class="card kpi"><div class="l">IVA</div><div class="n">${cop(r.iva)}</div></div></div>
   <div class="grid two" style="margin-top:14px"><div class="card tw"><h3>Más vendidos</h3><table><tbody>${r.top.map(t => html`<tr><td>${t.nombre}</td><td class="r">${t.unidades} u</td><td class="r">${cop(t.total)}</td></tr>`)}</tbody></table></div>
   <div class="card"><h3>Por medio de pago</h3><table><tbody>${r.por_medio.map(m => html`<tr><td>${m.medio_pago}</td><td class="r">${cop(m.total)}</td></tr>`)}</tbody></table></div></div>
+  <div class="card" style="margin-top:14px"><h3>Plata que se pierde</h3>
+    <div class="grid kpis"><div class="card kpi"><div class="l">Dado de baja en el período</div><div class="n" style="color:${per.total ? 'var(--red)' : 'inherit'}">${cop(per.total)}</div><div class="l">${per.bajas} baja(s), a costo</div></div>
+      <div class="card kpi"><div class="l">Vencido todavía en bodega</div><div class="n" style="color:${per.vencido_en_bodega ? 'var(--amb-d)' : 'inherit'}">${cop(per.vencido_en_bodega)}</div><div class="l">pendiente de dar de baja</div></div>
+      <div class="card kpi"><div class="l">En riesgo de vencerse</div><div class="n">${cop(per.en_riesgo)}</div><div class="l">según tu rotación</div></div></div>
+    ${per.por_motivo.length ? html`<h4>Por motivo</h4><table><tbody>${per.por_motivo.map(m => html`<tr><td>${m.motivo}</td><td class="mut">${m.bajas} baja(s) · ${m.unidades} u</td><td class="r"><b>${cop(m.valor)}</b></td></tr>`)}</tbody></table>` : html`<p class="mut" style="margin-bottom:0">No hay bajas en este período. Lo vencido se registra desde <b>Vencimientos → Dar de baja</b>.</p>`}</div>
   <div class="card tw" style="margin-top:14px"><div class="row sp"><h3>Libro de fórmulas dispensadas</h3><span><a class="btn sm" href="/api/reportes/formulas?desde=${d}&hasta=${h}&formato=csv">${ic('download')} CSV</a> <a class="btn sm" href="/api/reportes/formulas?desde=${d}&hasta=${h}&formato=csv&control=1">${ic('download')} CSV control especial</a></span></div>
   <table><thead><tr><th>Fecha</th><th>Fórmula</th><th>Paciente</th><th>Médico</th><th>Medicamentos</th><th>Despachó</th></tr></thead><tbody>${libro.map(f => html`<tr><td>${f.fecha.replace('T', ' ').slice(0, 16)}</td><td>${f.numero || ''} ${f.control ? html`<span class="badge red">Control</span>` : ''} ${f.estado !== 'ok' ? html`<span class="badge red">anulada</span>` : ''}</td><td>${f.paciente}<div class="mut">${f.documento_paciente || ''}</div></td><td>${f.medico}<div class="mut">RM ${f.registro_medico}</div></td><td>${f.medicamentos}</td><td>${f.despachado_por}</td></tr>`)}
   ${libro.length ? '' : html`<tr><td colspan="6" class="mut">Sin fórmulas en el período.</td></tr>`}</tbody></table></div>`.s;

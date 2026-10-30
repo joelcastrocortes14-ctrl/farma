@@ -468,3 +468,47 @@ test('etiquetas QR: lotes por producto, compra o lote; exige un filtro y rol sta
   assert.equal(deCompra[0].lote, 'ETQ1');
   assert.equal((await regente.get('/etiquetas?lote_id=' + deCompra[0].lote_id)).body[0].codigo, 'RP');
 });
+
+test('app instalable: manifest válido e íconos disponibles sin iniciar sesión', async () => {
+  const m = await fetch(base + '/manifest.webmanifest');
+  assert.equal(m.status, 200);
+  const j = await m.json();
+  assert.equal(j.name, 'VitalTrack');
+  assert.equal(j.display, 'standalone');
+  assert.ok(j.icons.some(i => i.sizes === '512x512' && i.purpose === 'maskable'));
+  for (const i of j.icons) {
+    const r = await fetch(base + '/' + i.src);
+    assert.equal(r.status, 200, i.src);
+    assert.equal(r.headers.get('content-type'), 'image/png');
+  }
+  assert.equal((await fetch(base + '/apple-touch-icon.png')).status, 200);
+});
+
+test('pérdidas: las bajas se valoran a costo y se separan por motivo', async () => {
+  const lote = db.prepare("SELECT id, costo_unidad, cantidad FROM lotes WHERE lote = 'OLD'").get();
+  assert.equal((await regente.get('/reportes/perdidas')).body.total, 0);
+  assert.equal((await cajero.get('/reportes/perdidas')).status, 403);
+  assert.equal((await regente.post(`/lotes/${lote.id}/baja`, { cantidad: 3, motivo: 'Vencido' })).status, 200);
+  assert.equal((await regente.post(`/lotes/${lote.id}/baja`, { cantidad: 1, motivo: 'Dañado / roto' })).status, 200);
+  const r = (await regente.get('/reportes/perdidas')).body;
+  assert.equal(r.bajas, 2);
+  assert.equal(r.total, Math.round(3 * lote.costo_unidad) + Math.round(1 * lote.costo_unidad));
+  assert.deepEqual(r.por_motivo.map(m => m.motivo).sort(), ['Dañado / roto', 'Vencido']);
+  assert.equal(r.vencido_en_bodega, Math.round((lote.cantidad - 4) * lote.costo_unidad));            // queda 1 u vencida en bodega
+  assert.ok(r.en_riesgo >= 0);
+});
+
+test('WhatsApp: estado de configuración sin secretos y mensaje de prueba', async () => {
+  assert.equal((await cajero.get('/alertas/estado')).status, 403);
+  const e = (await regente.get('/alertas/estado')).body;
+  assert.equal(e.proveedor, 'simulado');
+  assert.equal(e.listo, false);
+  assert.equal(e.destinos, 2);
+  assert.ok(!JSON.stringify(e).includes(process.env.WA_TOKEN || 'TOKEN-INEXISTENTE'));
+  const p = (await regente.post('/alertas/prueba')).body;
+  assert.equal(p.resultados.length, 2);
+  assert.ok(p.resultados.every(r => r.estado === 'simulado'));
+  assert.ok((await regente.get('/alertas/log')).body.some(l => l.tipo === 'prueba'));
+  setCfg.run('alerta_destinos', '');
+  assert.equal((await regente.post('/alertas/prueba')).body.sin_destinos, true);
+});

@@ -207,6 +207,8 @@ function crearApp() {
   // ---------- Alertas WhatsApp ----------
   api.get('/alertas/pedidos', staff, wrap(() => alerts.pedidosSugeridos()));
   api.get('/alertas/log', staff, wrap(() => db.prepare('SELECT * FROM alertas_log ORDER BY id DESC LIMIT 50').all()));
+  api.get('/alertas/estado', staff, wrap(() => alerts.estadoWhatsApp()));
+  api.post('/alertas/prueba', staff, wrap(() => alerts.mensajePrueba()));
   api.post('/alertas/revisar', staff, wrap(req => alerts.revisarAlertas({ force: !!req.body.force })));
   api.post('/alertas/vista-previa', staff, wrap(() => ({
     stock: inv.stockCritico().length ? alerts.mensajeStock(inv.stockCritico()) : null,
@@ -214,6 +216,7 @@ function crearApp() {
   })));
 
   // ---------- Reportes ----------
+  api.get('/reportes/perdidas', staff, wrap(req => sales.reportePerdidas(req.query)));
   api.get('/reportes/ventas', staff, wrap(req => sales.reporteVentas(req.query)));
   api.get('/reportes/formulas', staff, wrap((req, res) => {
     const filas = sales.libroFormulas({ desde: req.query.desde, hasta: req.query.hasta, soloControl: req.query.control === '1' });

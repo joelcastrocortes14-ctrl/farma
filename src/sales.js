@@ -229,4 +229,22 @@ function reporteVentas({ desde, hasta }) {
   return { desde: d, hasta: h, ...resumen, utilidad: Math.round(utilidad), top, por_dia: porDia, por_medio: porMedio };
 }
 
-module.exports = { MEDIOS, buscarPOS, crearVenta, getVenta, anularVenta, cajaActual, abrirCaja, resumenCaja, cerrarCaja, abonar, libroFormulas, reporteVentas };
+/** Plata perdida por bajas de inventario (vencido, dañado, devolución…), más lo vencido que sigue en bodega y lo que está en riesgo. */
+function reportePerdidas({ desde, hasta }) {
+  const d = desde || hoy().slice(0, 8) + '01', h = hasta || hoy();
+  const filas = db.prepare(`SELECT m.fecha, m.motivo, -m.cantidad AS unidades, p.nombre, l.lote, ROUND(-m.cantidad * l.costo_unidad) AS valor
+    FROM movimientos m JOIN productos p ON p.id = m.producto_id JOIN lotes l ON l.id = m.lote_id
+    WHERE m.tipo = 'baja' AND substr(m.fecha, 1, 10) BETWEEN ? AND ? ORDER BY m.id DESC`).all(d, h);
+  const por = new Map();
+  for (const f of filas) { const k = f.motivo || 'Sin motivo'; const x = por.get(k) || { motivo: k, unidades: 0, valor: 0, bajas: 0 }; x.unidades += f.unidades; x.valor += f.valor; x.bajas++; por.set(k, x); }
+  const venc = analisisVencimientos();
+  return {
+    desde: d, hasta: h, total: filas.reduce((s, f) => s + f.valor, 0), bajas: filas.length,
+    por_motivo: [...por.values()].sort((a, b) => b.valor - a.valor),
+    vencido_en_bodega: Math.round(venc.filter(l => l.estado === 'vencido').reduce((s, l) => s + l.cantidad * l.costo_unidad, 0)),
+    en_riesgo: venc.reduce((s, l) => s + l.valor_riesgo, 0),
+    detalle: filas.slice(0, 100),
+  };
+}
+
+module.exports = { reportePerdidas, MEDIOS, buscarPOS, crearVenta, getVenta, anularVenta, cajaActual, abrirCaja, resumenCaja, cerrarCaja, abonar, libroFormulas, reporteVentas };

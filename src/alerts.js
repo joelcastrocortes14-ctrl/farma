@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
 const { db, cfg, setCfg, hoy, ahora } = require('./db');
 const { analisisVencimientos, stockCritico, sugerenciasPedido } = require('./inventory');
-const { enviarWhatsApp, limpiar } = require('./whatsapp');
+const { enviarWhatsApp, limpiar, proveedor } = require('./whatsapp');
 
 const MAX_LINEAS = 15;
 const destinos = () => cfg('alerta_destinos').split(',').map(s => s.trim()).filter(Boolean);
@@ -102,4 +102,26 @@ function iniciarPlanificador() {
   return t;
 }
 
-module.exports = { revisarAlertas, pedidosSugeridos, iniciarPlanificador, mensajeStock, mensajeVence };
+/** Qué falta para que WhatsApp envíe de verdad (sin revelar los secretos). */
+function estadoWhatsApp() {
+  const p = proveedor(), faltan = [];
+  if (p === 'meta') { if (!process.env.WA_TOKEN) faltan.push('WA_TOKEN'); if (!process.env.WA_PHONE_ID) faltan.push('WA_PHONE_ID'); }
+  else if (p === 'twilio') for (const v of ['TWILIO_SID', 'TWILIO_TOKEN', 'TWILIO_FROM']) if (!process.env[v]) faltan.push(v);
+  return { proveedor: p, listo: p !== 'simulado' && !faltan.length, faltan, destinos: destinos().length, plantilla: !!process.env.WA_TEMPLATE };
+}
+
+/** Envía un mensaje corto a los números configurados para comprobar que todo funciona. */
+async function mensajePrueba() {
+  const lista = destinos();
+  if (!lista.length) return { sin_destinos: true, resultados: [] };
+  const mensaje = `*${cfg('nombre_negocio')}*: mensaje de prueba de VitalTrack. Si lo ves, las alertas por WhatsApp funcionan.`;
+  const resultados = [];
+  for (const d of lista) {
+    const r = await enviarWhatsApp(d, mensaje);
+    db.prepare('INSERT INTO alertas_log(fecha,tipo,destino,mensaje,estado,detalle) VALUES(?,?,?,?,?,?)').run(ahora(), 'prueba', limpiar(d), mensaje, r.estado, r.detalle);
+    resultados.push({ destino: d, estado: r.estado, detalle: r.detalle });
+  }
+  return { sin_destinos: false, resultados };
+}
+
+module.exports = { estadoWhatsApp, mensajePrueba, revisarAlertas, pedidosSugeridos, iniciarPlanificador, mensajeStock, mensajeVence };

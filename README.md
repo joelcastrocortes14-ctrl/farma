@@ -50,7 +50,9 @@ La **cámara en vivo** solo la permiten los navegadores con **HTTPS** o en `loca
 | **Proveedores** | Quién te vendió, a cuánto, en cuánto tiempo llega, variación de precios y comparación entre proveedores. |
 | **Clientes (CRM)** | Historial, lo que compra seguido y cada cuánto, cartera. Pueden pedir que se les avise cuando llegue un producto: al ingresar la compra se envía el WhatsApp. Los clientes habituales de un producto que llegó se sugieren, pero **no se les escribe solos**. |
 | **Asistente** | Chat que responde preguntas como *"¿qué antibióticos me quedan con stock bajo?"*, *"¿qué vence esta semana?"*, *"¿cuánto vendí hoy?"*. Funciona con reglas sobre tus propios datos: sin servicio externo ni costo. |
-| **Alertas WhatsApp** | Stock crítico y vencimientos, sin repetir el mismo aviso en el día, más resumen diario. |
+| **Alertas WhatsApp** | Stock crítico y vencimientos, sin repetir el mismo aviso en el día, más resumen diario. En *Pedidos y alertas* hay un panel que dice qué falta configurar y un botón **Mensaje de prueba**. |
+| **Pérdidas** | En *Reportes*: plata dada de baja por motivo (vencido, dañado…), lo vencido que sigue en bodega y lo que está en riesgo. |
+| **App en el celular** | Se puede instalar: en Chrome (Android) *Instalar app* / *Agregar a la pantalla de inicio*; en iPhone, Safari → Compartir → *Agregar a inicio*. Abre sin la barra del navegador. Necesita conexión: no funciona sin internet ni sin la red de la tienda. |
 | **Etiquetas QR de lote** | Imprime etiquetas (hoja o rollo de 50 × 30 mm) con el QR `CODIGO|LOTE`, nombre, lote y vencimiento. Se ofrecen al ingresar una compra y desde la ficha del producto. Al escanearlas, el sistema verifica el lote al instante. |
 | **Exportar a Excel** | Inventario con lotes, ventas con detalle y utilidad, pedido sugerido y cartera de clientes, en archivos `.xlsx` reales (con filtros y fechas). Solo regente y administrador. |
 | **Compras, inventario, caja, reportes, usuarios** | Ingreso con lote y vencimiento, kardex, bajas, cierre de caja, ventas y utilidad, roles cajero / regente / admin. |
