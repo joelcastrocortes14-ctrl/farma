@@ -5,7 +5,7 @@ const { hashPassword } = require('./auth');
 
 const sumarDias = n => fmt(new Date(Date.now() + n * 86400000)).slice(0, 10);
 
-for (const t of ['alertas_log', 'formulas', 'venta_items', 'ventas', 'pagos_cliente', 'cajas', 'movimientos', 'lotes', 'compras', 'productos', 'proveedores', 'clientes', 'sesiones', 'usuarios', 'config']) db.exec(`DELETE FROM ${t}`);
+for (const t of ['avisos', 'receta_items', 'recetas', 'alertas_log', 'formulas', 'venta_items', 'ventas', 'pagos_cliente', 'cajas', 'movimientos', 'lotes', 'compras', 'productos', 'proveedores', 'clientes', 'sesiones', 'usuarios', 'config']) db.exec(`DELETE FROM ${t}`);
 
 const u = db.prepare('INSERT INTO usuarios(nombre,usuario,hash,rol) VALUES(?,?,?,?)');
 u.run('Administrador', 'admin', hashPassword('admin123'), 'admin');
@@ -15,9 +15,9 @@ u.run('Cajero', 'cajero', hashPassword('cajero123'), 'cajero');
 setCfg.run('nombre_negocio', 'Droguería La Esquina');
 setCfg.run('alerta_destinos', '573001234567');
 
-const prov = db.prepare('INSERT INTO proveedores(nombre,telefono,contacto,dias_devolucion) VALUES(?,?,?,?)');
-const cop = Number(prov.run('Coopidrogas', '573101112233', 'Asesor Marta', 90).lastInsertRowid);
-const dist = Number(prov.run('Distribuidora Medicol', '573204445566', 'Jorge', 60).lastInsertRowid);
+const prov = db.prepare('INSERT INTO proveedores(nombre,telefono,contacto,dias_devolucion,dias_entrega) VALUES(?,?,?,?,?)');
+const cop = Number(prov.run('Coopidrogas', '573101112233', 'Asesor Marta', 90, 1).lastInsertRowid);
+const dist = Number(prov.run('Distribuidora Medicol', '573204445566', 'Jorge', 60, 2).lastInsertRowid);
 
 // [codigo, nombre, principio, presentacion, formula, control, factor, precioEmpaque, costoEmpaque, stockMinEmpaques, proveedor, iva]
 const catalogo = [
@@ -36,10 +36,13 @@ const catalogo = [
   ['7701013', 'Vitamina C 500 mg', 'Ácido ascórbico', 'Frasco x 100 tabletas', 0, 0, 100, 18000, 10500, 1, dist, 19],
   ['7701014', 'Dolex Gripa', 'Acetaminofén + fenilefrina', 'Caja x 48 tabletas', 0, 0, 48, 26000, 17000, 2, cop, 0],
 ];
-const insP = db.prepare(`INSERT INTO productos(codigo,nombre,principio_activo,presentacion,requiere_formula,control_especial,factor,precio_venta,costo,stock_min,proveedor_id,iva)
-  VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
+const CATEGORIAS = { 7701001: 'Analgésico', 7701002: 'Analgésico', 7701003: 'Antihistamínico', 7701004: 'Analgésico', 7701005: 'Gástrico', 7701006: 'Antibiótico',
+  7701007: 'Antihipertensivo', 7701008: 'Antidiabético', 7701009: 'Control especial', 7701010: 'Control especial', 7701011: 'Hidratación', 7701012: 'Antisépticos',
+  7701013: 'Vitaminas', 7701014: 'Gripa' };
+const insP = db.prepare(`INSERT INTO productos(codigo,nombre,principio_activo,presentacion,requiere_formula,control_especial,factor,precio_venta,costo,stock_min,proveedor_id,iva,categoria,invima)
+  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 const ids = {};
-for (const [cod, nom, pa, pres, f, c, fac, pv, co, min, pr, iva] of catalogo) ids[cod] = Number(insP.run(cod, nom, pa, pres, f, c, fac, pv, co, min, pr, iva).lastInsertRowid);
+for (const [cod, nom, pa, pres, f, c, fac, pv, co, min, pr, iva] of catalogo) ids[cod] = Number(insP.run(cod, nom, pa, pres, f, c, fac, pv, co, min, pr, iva, CATEGORIAS[cod], `INVIMA ${2019 + (cod % 5)}M-00${cod % 900 + 100}`).lastInsertRowid);
 
 // [codigo, lote, díasParaVencer, empaques(float), ]
 const lotes = [
@@ -88,7 +91,18 @@ for (let d = 30; d >= 1; d--) {
 }
 db.exec('COMMIT');
 
-db.prepare('INSERT INTO clientes(nombre,documento,telefono,saldo) VALUES(?,?,?,?)').run('Doña Rosa Pérez', '41234567', '573115556677', 0);
+const insC = db.prepare('INSERT INTO clientes(nombre,documento,telefono,saldo) VALUES(?,?,?,?)');
+insC.run('Doña Rosa Pérez', '41234567', '573115556677', 0);
+// Doña María compra Losartán cada mes: el historial muestra su costumbre y pidió aviso del Clonazepam de su esposo
+const maria = Number(insC.run('Doña María Gómez', '32111222', '573001112233', 0).lastInsertRowid);
+const lot = db.prepare('SELECT id FROM lotes WHERE producto_id = ? LIMIT 1').get(ids['7701007']).id;
+for (const dAtras of [75, 45, 15]) {
+  const t = 8500;
+  const v = Number(insV.run(fmt(new Date(Date.now() - dAtras * 864e5)), adminId, caja, t, 0, 0, t, 'efectivo').lastInsertRowid);
+  db.prepare('UPDATE ventas SET cliente_id = ? WHERE id = ?').run(maria, v);
+  insVI.run(v, ids['7701007'], lot, 30, 8500 / 30, 0, t, 4200 / 30);
+}
+db.prepare('INSERT INTO avisos(cliente_id, producto_id, creado) VALUES(?,?,?)').run(maria, ids['7701009'], fmt(new Date()));
 db.prepare('INSERT INTO clientes(nombre,documento,telefono,saldo) VALUES(?,?,?,?)').run('Carlos Gómez', '79876543', '573128889900', 0);
 
 console.log('Datos de demostración creados.');

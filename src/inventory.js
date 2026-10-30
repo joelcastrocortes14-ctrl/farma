@@ -83,14 +83,22 @@ function analisisVencimientos({ soloAlerta = false } = {}) {
   return soloAlerta ? out.filter(l => l.estado !== 'ok') : out;
 }
 
-/** Stock vendible (sin vencidos) vs. mínimo y cobertura según rotación. */
-function stockCritico({ todos = false } = {}) {
+const redondeo = n => Math.max(1, Math.round(n));
+const ORDEN_NIVEL = { agotado: 0, critico: 1, pronto: 2, ok: 3 };
+
+/**
+ * Stock vendible (sin vencidos) vs. mínimo y vs. rotación real.
+ * "margen" = días de cobertura menos los días que tarda el proveedor en entregar:
+ * con 20 u/día, 40 en stock y entrega en 1 día, el margen es 1 -> "Pide mañana o te quedas sin stock".
+ * Niveles: agotado, critico (bajo mínimo o se acaba antes de que llegue el pedido), pronto (margen <= 3 d), ok.
+ */
+function stockCritico({ todos = false, incluirPronto = false } = {}) {
   const hoyStr = hoy();
   const repos = cfgNum('dias_reposicion');
   const vel = rotacion();
   const rows = db.prepare(`
-    SELECT p.id, p.codigo, p.nombre, p.presentacion, p.factor, p.stock_min, p.costo,
-           pr.nombre AS proveedor, pr.telefono AS proveedor_tel,
+    SELECT p.id, p.codigo, p.nombre, p.presentacion, p.factor, p.stock_min, p.costo, p.categoria,
+           pr.nombre AS proveedor, pr.telefono AS proveedor_tel, pr.dias_entrega AS entrega,
            COALESCE(SUM(CASE WHEN l.vence >= ? THEN l.cantidad ELSE 0 END), 0) AS vendible,
            COALESCE(SUM(CASE WHEN l.vence <  ? THEN l.cantidad ELSE 0 END), 0) AS vencido
     FROM productos p LEFT JOIN lotes l ON l.producto_id = p.id
@@ -101,16 +109,59 @@ function stockCritico({ todos = false } = {}) {
   for (const p of rows) {
     const v = vel.get(p.id) || 0;
     const minU = p.stock_min * p.factor;
+    const lead = p.entrega ?? repos;
     const cobertura = v > 0 ? p.vendible / v : null;
-    let nivel = 'ok', motivo = '';
-    if (p.vendible <= 0 && (minU > 0 || v > 0)) { nivel = 'agotado'; motivo = 'Sin existencias vendibles'; }
-    else if (minU > 0 && p.vendible <= minU) { nivel = 'critico'; motivo = 'Por debajo del mínimo'; }
-    else if (cobertura !== null && cobertura <= repos) { nivel = 'critico'; motivo = `Se agota en ~${Math.max(1, Math.round(cobertura))} d, antes de que llegue un pedido`; }
-    const objetivo = Math.max(v * (repos + 14), minU * 2);
+    const margen = cobertura === null ? null : cobertura - lead;
+    let nivel = 'ok', motivo = '', sugerencia = '', urgencia = null;
+
+    if (p.vendible <= 0 && (minU > 0 || v > 0)) {
+      nivel = 'agotado'; motivo = 'Sin existencias vendibles'; sugerencia = 'Agotado: pide hoy.'; urgencia = 'hoy';
+    } else if (minU > 0 && p.vendible <= minU) {
+      nivel = 'critico'; motivo = 'Por debajo del mínimo';
+    } else if (margen !== null && margen <= 0) {
+      nivel = 'critico'; motivo = `Se agota en ~${redondeo(cobertura)} d y el pedido tarda ${lead} d`;
+    } else if (margen !== null && margen <= 3) {
+      nivel = 'pronto'; motivo = `Se agota en ~${redondeo(cobertura)} d`;
+    }
+    if (nivel !== 'ok' && nivel !== 'agotado') {
+      if (margen !== null && margen <= 0) { sugerencia = `Pide HOY: se agota en ~${redondeo(cobertura)} d y el pedido tarda ${lead} d.`; urgencia = 'hoy'; }
+      else if (margen !== null && margen <= 1) { sugerencia = `Pide mañana o te quedas sin stock (se agota en ~${redondeo(cobertura)} d).`; urgencia = 'manana'; }
+      else if (margen !== null) { sugerencia = `Pide en ${Math.floor(margen)} días (se agota en ~${redondeo(cobertura)} d).`; urgencia = 'pronto'; }
+      else { sugerencia = 'Por debajo del mínimo: pídelo en tu próximo pedido.'; urgencia = 'pronto'; }
+    }
+    const objetivo = Math.max(v * (lead + 14), minU * 2);
     const sugerido = nivel === 'ok' ? 0 : Math.max(1, Math.ceil((objetivo - p.vendible) / p.factor));
-    out.push({ ...p, rotacion_dia: Number(v.toFixed(2)), cobertura_dias: cobertura === null ? null : Number(cobertura.toFixed(1)), nivel, motivo, sugerido_empaques: sugerido });
+    const agota = cobertura === null ? null : fmt(new Date(Date.now() + cobertura * 86400000)).slice(0, 10);
+    out.push({ ...p, entrega: lead, rotacion_dia: Number(v.toFixed(2)), cobertura_dias: cobertura === null ? null : Number(cobertura.toFixed(1)),
+      margen_dias: margen === null ? null : Number(margen.toFixed(1)), fecha_agota: agota, nivel, motivo, sugerencia, urgencia, sugerido_empaques: sugerido });
   }
-  return todos ? out : out.filter(p => p.nivel !== 'ok');
+  if (todos) return out;
+  return out.filter(p => p.nivel !== 'ok' && (incluirPronto || p.nivel !== 'pronto'))
+    .sort((a, b) => ORDEN_NIVEL[a.nivel] - ORDEN_NIVEL[b.nivel] || (a.margen_dias ?? 99) - (b.margen_dias ?? 99));
+}
+
+/** Lista de pedido: todo lo crítico más lo que se agotará en pocos días, con el texto "pide mañana…". */
+const sugerenciasPedido = () => stockCritico({ incluirPronto: true });
+
+/** Semáforo por producto: verde = bien, amarillo = vence en <= 90 d o stock en camino de agotarse, rojo = vencido / vence <= 30 d / stock bajo. */
+function semaforoProductos() {
+  const aten = cfgNum('dias_vence_atencion'), crit = cfgNum('dias_vence_critico');
+  const m = new Map();
+  const marca = (id, color, motivo) => {
+    const prev = m.get(id);
+    if (!prev || (color === 'rojo' && prev.color !== 'rojo')) m.set(id, { color, motivos: [...(prev?.motivos || []), motivo] });
+    else prev.motivos.push(motivo);
+  };
+  for (const l of analisisVencimientos()) {
+    if (l.dias < 0) marca(l.producto_id, 'rojo', `Lote ${l.lote} vencido`);
+    else if (l.dias <= crit) marca(l.producto_id, 'rojo', `Lote ${l.lote} vence en ${l.dias} d`);
+    else if (l.dias <= aten) marca(l.producto_id, 'amarillo', `Lote ${l.lote} vence en ${l.dias} d`);
+  }
+  for (const p of stockCritico({ incluirPronto: true })) {
+    if (p.nivel === 'pronto') marca(p.id, 'amarillo', p.motivo);
+    else marca(p.id, 'rojo', p.nivel === 'agotado' ? 'Agotado' : `Stock bajo: ${p.motivo.toLowerCase()}`);
+  }
+  return new Map([...m].map(([id, v]) => [id, { color: v.color, motivo: v.motivos.join(' · ') }]));
 }
 
 function stockDe(producto_id) {
@@ -164,4 +215,4 @@ function ajustarLote({ lote_id, cantidad, motivo, usuario_id }) {
   });
 }
 
-module.exports = { HttpError, diasEntre, precioUnidad, fechaValida, rotacion, analisisVencimientos, stockCritico, stockDe, registrarCompra, ajustarLote };
+module.exports = { HttpError, diasEntre, precioUnidad, fechaValida, rotacion, analisisVencimientos, stockCritico, sugerenciasPedido, semaforoProductos, stockDe, registrarCompra, ajustarLote };

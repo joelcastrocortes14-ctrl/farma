@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 const { db, cfg, setCfg, hoy, ahora } = require('./db');
-const { analisisVencimientos, stockCritico } = require('./inventory');
+const { analisisVencimientos, stockCritico, sugerenciasPedido } = require('./inventory');
 const { enviarWhatsApp, limpiar } = require('./whatsapp');
 
 const MAX_LINEAS = 15;
@@ -17,7 +17,7 @@ function mensajeStock(items) {
   const negocio = cfg('nombre_negocio');
   const lineas = items.map(p => {
     const emp = (p.vendible / p.factor).toFixed(p.factor > 1 ? 1 : 0).replace('.0', '');
-    const ped = p.sugerido_empaques ? ` → pedir ${p.sugerido_empaques}` : '';
+    const ped = p.sugerido_empaques ? ` → pedir ${p.sugerido_empaques}${p.urgencia === 'hoy' ? ' HOY' : p.urgencia === 'manana' ? ' mañana' : ''}` : '';
     return `${p.nivel === 'agotado' ? '[AGOTADO]' : '[CRÍTICO]'} ${p.nombre}: ${emp} en stock (mín ${p.stock_min})${ped}`;
   });
   return `*${negocio} – ALERTA: Stock crítico* (${items.length})\n${listar(lineas)}`;
@@ -71,7 +71,7 @@ async function revisarAlertas({ force = false } = {}) {
 /** Pedido sugerido agrupado por proveedor, con texto listo para enviar por WhatsApp. */
 function pedidosSugeridos() {
   const grupos = new Map();
-  for (const p of stockCritico()) {
+  for (const p of sugerenciasPedido()) {
     const k = p.proveedor || 'Sin proveedor';
     if (!grupos.has(k)) grupos.set(k, { proveedor: k, telefono: p.proveedor_tel || null, items: [] });
     grupos.get(k).items.push({ producto_id: p.id, nombre: p.nombre, empaques: p.sugerido_empaques, nivel: p.nivel });

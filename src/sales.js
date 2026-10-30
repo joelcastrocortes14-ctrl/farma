@@ -1,5 +1,6 @@
 const { db, tx, cfg, cfgNum, hoy, ahora } = require('./db');
-const { HttpError, precioUnidad, analisisVencimientos } = require('./inventory');
+const { HttpError, precioUnidad, analisisVencimientos, semaforoProductos } = require('./inventory');
+const { getReceta } = require('./recetas');
 
 const MEDIOS = ['efectivo', 'tarjeta', 'transferencia', 'fiado'];
 const esRegente = u => u.rol === 'admin' || u.rol === 'regente';
@@ -19,6 +20,7 @@ function buscarPOS(q) {
     }
   }
   const hoyStr = hoy();
+  const sem = semaforoProductos();
   return prods.map(p => {
     const lotes = db.prepare('SELECT id, lote, vence, cantidad FROM lotes WHERE producto_id = ? AND cantidad > 0 AND vence >= ? ORDER BY vence, id').all(p.id, hoyStr);
     const stock = lotes.reduce((s, l) => s + l.cantidad, 0);
@@ -27,12 +29,13 @@ function buscarPOS(q) {
       id: p.id, codigo: p.codigo, nombre: p.nombre, presentacion: p.presentacion, principio_activo: p.principio_activo,
       requiere_formula: !!p.requiere_formula, control_especial: !!p.control_especial,
       factor: p.factor, precio_empaque: p.precio_venta, precio_unidad: precioUnidad(p),
-      stock, proximo_vence: lotes[0]?.vence || null, promo_pct: promo?.promo_pct || 0,
+      stock, proximo_vence: lotes[0]?.vence || null, proximo_lote: lotes[0]?.lote || null, promo_pct: promo?.promo_pct || 0,
+      foto: !!p.foto, semaforo: sem.get(p.id)?.color || 'verde',
     };
   });
 }
 
-function crearVenta({ items, cliente_id, medio_pago, formula }, usuario) {
+function crearVenta({ items, cliente_id, medio_pago, receta_id }, usuario) {
   if (!Array.isArray(items) || !items.length) throw new HttpError(400, 'El carrito está vacío');
   if (!MEDIOS.includes(medio_pago)) throw new HttpError(400, 'Medio de pago inválido');
   const caja = db.prepare("SELECT * FROM cajas WHERE usuario_id = ? AND estado = 'abierta'").get(usuario.id);
@@ -44,6 +47,7 @@ function crearVenta({ items, cliente_id, medio_pago, formula }, usuario) {
     const hoyStr = hoy();
     let necesitaFormula = false, hayControl = false;
     const lineas = [];
+    const rx = new Map(); // unidades de medicamentos con fórmula pedidas por producto
 
     for (const it of items) {
       const p = db.prepare('SELECT * FROM productos WHERE id = ? AND activo = 1').get(it.producto_id);
@@ -52,8 +56,9 @@ function crearVenta({ items, cliente_id, medio_pago, formula }, usuario) {
       if (!Number.isInteger(n) || n <= 0) throw new HttpError(400, `Cantidad inválida para ${p.nombre}`);
       const porEmpaque = it.modo === 'empaque';
       let unidades = porEmpaque ? n * p.factor : n;
+      const pedidas = unidades;
       if (p.control_especial) { hayControl = true; if (!esRegente(usuario)) throw new HttpError(403, `${p.nombre} es de control especial: lo debe despachar el regente de farmacia`); }
-      if (p.requiere_formula) necesitaFormula = true;
+      if (p.requiere_formula) { necesitaFormula = true; rx.set(p.id, { p, unidades: (rx.get(p.id)?.unidades || 0) + pedidas }); }
 
       let pct = Math.max(0, Math.min(Number(it.descuento_pct) || 0, maxDesc));
       const pu = porEmpaque ? p.precio_venta / p.factor : precioUnidad(p);
@@ -63,7 +68,12 @@ function crearVenta({ items, cliente_id, medio_pago, formula }, usuario) {
       // FEFO: primero lo que vence antes; nunca lotes vencidos
       const lotes = db.prepare('SELECT * FROM lotes WHERE producto_id = ? AND cantidad > 0 AND vence >= ? ORDER BY vence, id').all(p.id, hoyStr);
       const disponible = lotes.reduce((s, l) => s + l.cantidad, 0);
-      if (unidades > disponible) throw new HttpError(409, `Stock insuficiente de ${p.nombre}: hay ${disponible} unidades vendibles`);
+      if (unidades > disponible) {
+        const vencidas = db.prepare('SELECT COALESCE(SUM(cantidad),0) n FROM lotes WHERE producto_id = ? AND vence < ?').get(p.id, hoyStr).n;
+        throw new HttpError(409, vencidas && disponible === 0
+          ? `BLOQUEADO: ${p.nombre} solo tiene unidades VENCIDAS (${vencidas} u). No se puede facturar.`
+          : `Stock insuficiente de ${p.nombre}: hay ${disponible} unidades vendibles${vencidas ? ` (y ${vencidas} vencidas bloqueadas)` : ''}`);
+      }
       for (const l of lotes) {
         if (unidades <= 0) break;
         const toma = Math.min(l.cantidad, unidades);
@@ -72,10 +82,18 @@ function crearVenta({ items, cliente_id, medio_pago, formula }, usuario) {
       }
     }
 
+    // Medicamentos con fórmula: solo se despacha lo recetado y hasta el saldo de la receta
+    let receta = null;
     if (necesitaFormula) {
-      const f = formula || {};
-      if (!f.paciente || !f.medico || !f.registro_medico) throw new HttpError(400, 'Venta con fórmula: faltan paciente, médico o registro médico');
-      if (hayControl && !f.documento_paciente) throw new HttpError(400, 'Medicamento de control especial: falta documento del paciente');
+      if (!receta_id) throw new HttpError(400, 'Esta venta incluye medicamentos con fórmula: selecciona o registra la receta');
+      receta = getReceta(receta_id);
+      if (!receta.vigente) throw new HttpError(409, `La fórmula venció el ${receta.vence}`);
+      if (hayControl && !receta.documento_paciente) throw new HttpError(400, 'Medicamento de control especial: la receta no tiene documento del paciente');
+      for (const { p, unidades } of rx.values()) {
+        const it = receta.items.find(i => i.producto_id === p.id);
+        if (!it) throw new HttpError(403, `${p.nombre} NO está en la fórmula de ${receta.paciente}: no se puede despachar`);
+        if (unidades > it.saldo) throw new HttpError(409, `${p.nombre}: la fórmula solo permite ${it.saldo} unidades más (pediste ${unidades})`);
+      }
     }
 
     let subtotal = 0, descuento = 0, ivaTotal = 0, total = 0;
@@ -101,10 +119,11 @@ function crearVenta({ items, cliente_id, medio_pago, formula }, usuario) {
       db.prepare('INSERT INTO movimientos(fecha,tipo,producto_id,lote_id,cantidad,usuario_id,ref_id) VALUES(?,?,?,?,?,?,?)')
         .run(fecha, 'venta', l.p.id, l.lote.id, -l.cantidad, usuario.id, ventaId);
     }
-    if (necesitaFormula) {
-      const f = formula;
-      db.prepare('INSERT INTO formulas(venta_id,numero,fecha_formula,paciente,documento_paciente,medico,registro_medico,institucion,observaciones) VALUES(?,?,?,?,?,?,?,?,?)')
-        .run(ventaId, f.numero || null, f.fecha_formula || null, f.paciente, f.documento_paciente || null, f.medico, f.registro_medico, f.institucion || null, f.observaciones || null);
+    if (receta) {
+      db.prepare('UPDATE ventas SET receta_id = ? WHERE id = ?').run(receta.id, ventaId);
+      for (const { p, unidades } of rx.values()) db.prepare('UPDATE receta_items SET dispensado = dispensado + ? WHERE receta_id = ? AND producto_id = ?').run(unidades, receta.id, p.id);
+      db.prepare('INSERT INTO formulas(venta_id,numero,fecha_formula,paciente,documento_paciente,medico,registro_medico,institucion) VALUES(?,?,?,?,?,?,?,?)')
+        .run(ventaId, receta.numero, receta.fecha_formula, receta.paciente, receta.documento_paciente, receta.medico, receta.registro_medico, receta.institucion);
     }
     if (medio_pago === 'fiado') db.prepare('UPDATE clientes SET saldo = saldo + ? WHERE id = ?').run(total, cliente_id);
     return getVenta(ventaId);
@@ -131,6 +150,10 @@ function anularVenta(id, usuario) {
       db.prepare('UPDATE lotes SET cantidad = cantidad + ? WHERE id = ?').run(it.cantidad, it.lote_id);
       db.prepare('INSERT INTO movimientos(fecha,tipo,producto_id,lote_id,cantidad,motivo,usuario_id,ref_id) VALUES(?,?,?,?,?,?,?,?)')
         .run(ahora(), 'anulacion', it.producto_id, it.lote_id, it.cantidad, `Anulación venta ${id}`, usuario.id, id);
+    }
+    if (v.receta_id) {
+      for (const it of db.prepare('SELECT vi.producto_id, SUM(vi.cantidad) n FROM venta_items vi JOIN productos p ON p.id = vi.producto_id WHERE vi.venta_id = ? AND p.requiere_formula = 1 GROUP BY vi.producto_id').all(id))
+        db.prepare('UPDATE receta_items SET dispensado = MAX(0, dispensado - ?) WHERE receta_id = ? AND producto_id = ?').run(it.n, v.receta_id, it.producto_id);
     }
     if (v.medio_pago === 'fiado') db.prepare('UPDATE clientes SET saldo = saldo - ? WHERE id = ?').run(v.total, v.cliente_id);
     db.prepare("UPDATE ventas SET estado = 'anulada' WHERE id = ?").run(id);

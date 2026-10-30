@@ -2,10 +2,13 @@ const { DatabaseSync } = require('node:sqlite');
 const path = require('node:path');
 const fs = require('node:fs');
 
+const os = require('node:os');
 const file = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'drogueria.db');
 if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
 
 const db = new DatabaseSync(file);
+// Carpeta para archivos (fotos de productos y recetas), junto a la base de datos
+const dataDir = file === ':memory:' ? fs.mkdtempSync(path.join(os.tmpdir(), 'vitaltrack-')) : path.dirname(file);
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
 db.exec(`
@@ -82,8 +85,32 @@ CREATE TABLE IF NOT EXISTS alertas_log (
 );
 `);
 
+// ---- Migraciones: agrega columnas/tablas sin tocar los datos existentes ----
+const tieneCol = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some(x => x.name === c);
+const addCol = (t, c, ddl) => { if (!tieneCol(t, c)) db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${ddl}`); };
+addCol('proveedores', 'dias_entrega', 'INTEGER NOT NULL DEFAULT 1');
+addCol('productos', 'foto', 'TEXT');                       // extensión del archivo de foto, null = sin foto
+addCol('ventas', 'receta_id', 'INTEGER');
+db.exec(`
+CREATE TABLE IF NOT EXISTS recetas (
+  id INTEGER PRIMARY KEY, numero TEXT, fecha_formula TEXT NOT NULL, vence TEXT NOT NULL,
+  paciente TEXT NOT NULL, documento_paciente TEXT, medico TEXT NOT NULL, registro_medico TEXT NOT NULL,
+  institucion TEXT, imagen TEXT, creada TEXT NOT NULL, usuario_id INTEGER
+);
+CREATE TABLE IF NOT EXISTS receta_items (
+  id INTEGER PRIMARY KEY, receta_id INTEGER NOT NULL REFERENCES recetas(id),
+  producto_id INTEGER NOT NULL REFERENCES productos(id), cantidad INTEGER NOT NULL, dispensado INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_receta_items ON receta_items(receta_id);
+-- Clientes que piden que se les avise cuando llegue un producto
+CREATE TABLE IF NOT EXISTS avisos (
+  id INTEGER PRIMARY KEY, cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+  producto_id INTEGER NOT NULL REFERENCES productos(id), creado TEXT NOT NULL, avisado TEXT
+);
+`);
+
 const DEFAULTS = {
-  nombre_negocio: 'Droguería',
+  nombre_negocio: 'Mi Droguería',
   alerta_destinos: '',            // números WhatsApp separados por coma, formato 573001234567
   alerta_hora: '07:30',           // resumen diario
   dias_reposicion: '5',           // días que tarda en llegar un pedido
@@ -92,6 +119,7 @@ const DEFAULTS = {
   ventana_rotacion: '60',         // días de historia para calcular rotación
   promo_auto: '1',                // aplicar descuento sugerido por vencimiento en el POS
   descuento_max_pct: '40',
+  receta_vigencia_dias: '30',     // días de validez de una fórmula desde su fecha
 };
 const getCfg = db.prepare('SELECT valor FROM config WHERE clave = ?');
 const setCfg = db.prepare('INSERT INTO config(clave,valor) VALUES(?,?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor');
@@ -114,4 +142,4 @@ const fmt = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOStri
 const hoy = () => fmt(new Date()).slice(0, 10);
 const ahora = () => fmt(new Date());
 
-module.exports = { db, tx, cfg, cfgNum, allCfg, setCfg, DEFAULTS, hoy, ahora, fmt };
+module.exports = { db, tx, cfg, cfgNum, allCfg, setCfg, DEFAULTS, hoy, ahora, fmt, dataDir };

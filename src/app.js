@@ -7,6 +7,12 @@ const sales = require('./sales');
 const alerts = require('./alerts');
 const auth = require('./auth');
 const { proveedor: waProveedor } = require('./whatsapp');
+const recetas = require('./recetas');
+const escaneo = require('./escaneo');
+const proveedores = require('./proveedores');
+const clientes = require('./clientes');
+const asistente = require('./asistente');
+const { guardarImagen, rutaImagen } = require('./archivos');
 
 const { HttpError } = inv;
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res)).then(r => { if (r !== undefined && !res.headersSent) res.json(r); }).catch(next);
@@ -18,7 +24,7 @@ const bool = v => (v ? 1 : 0);
 function crearApp() {
   const app = express();
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '200kb' }));
+  app.use(express.json({ limit: '4mb' }));
   app.use((_req, res, next) => { res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store' }); next(); });
 
   // ---------- Auth ----------
@@ -40,6 +46,9 @@ function crearApp() {
     const stock = inv.stockCritico();
     const hoyR = sales.reporteVentas({});
     return {
+      total_productos: db.prepare('SELECT COUNT(*) n FROM productos WHERE activo = 1').get().n,
+      por_vencer: venc.filter(l => l.dias <= 90).length, vencen_semana: venc.filter(l => l.dias <= 7).length,
+      stock_bajo: stock.length, pedido_sugerido: inv.sugerenciasPedido().length,
       ventas_hoy: hoyR.total, num_ventas_hoy: hoyR.ventas, utilidad_hoy: hoyR.utilidad,
       lotes_vencidos: venc.filter(l => l.estado === 'vencido').length,
       lotes_criticos: venc.filter(l => l.estado === 'critico').length,
@@ -47,7 +56,7 @@ function crearApp() {
       stock_critico: stock.length, agotados: stock.filter(p => p.nivel === 'agotado').length,
       cartera: db.prepare('SELECT COALESCE(SUM(saldo),0) s FROM clientes').get().s,
       top_vencer: venc.filter(l => l.estado !== 'ok').slice(0, 5),
-      top_stock: stock.slice(0, 5),
+      top_stock: inv.sugerenciasPedido().slice(0, 5),
       ventas_7d: sales.reporteVentas({ desde: fmt(new Date(Date.now() - 6 * 864e5)).slice(0, 10), hasta: hoy() }).por_dia,
     };
   }));
@@ -55,11 +64,24 @@ function crearApp() {
   // ---------- Productos ----------
   api.get('/productos', wrap(req => {
     const q = `%${req.query.q || ''}%`;
+    const sem = inv.semaforoProductos();
     return db.prepare(`SELECT p.*, pr.nombre AS proveedor,
         COALESCE((SELECT SUM(cantidad) FROM lotes l WHERE l.producto_id = p.id AND l.vence >= ?),0) AS stock
       FROM productos p LEFT JOIN proveedores pr ON pr.id = p.proveedor_id
-      WHERE p.activo = 1 AND (p.nombre LIKE ? OR p.codigo LIKE ? OR p.principio_activo LIKE ?) ORDER BY p.nombre LIMIT 300`).all(hoy(), q, q, q);
+      WHERE p.activo = 1 AND (p.nombre LIKE ? OR p.codigo LIKE ? OR p.principio_activo LIKE ? OR p.categoria LIKE ?) ORDER BY p.nombre LIMIT ?`)
+      .all(hoy(), q, q, q, q, Math.min(Number(req.query.limit) || 300, 300))
+      .map(p => ({ ...p, tiene_foto: !!p.foto, semaforo: sem.get(p.id)?.color || 'verde', semaforo_motivo: sem.get(p.id)?.motivo || '' }));
   }));
+  api.put('/productos/:id/foto', staff, wrap(req => {
+    if (!db.prepare('SELECT 1 FROM productos WHERE id = ?').get(req.params.id)) throw new HttpError(404, 'Producto no existe');
+    db.prepare('UPDATE productos SET foto = ? WHERE id = ?').run(guardarImagen('fotos', Number(req.params.id), req.body.imagen), req.params.id);
+    return { ok: true };
+  }));
+  api.get('/productos/:id/foto', (req, res, next) => {
+    const f = rutaImagen('fotos', req.params.id, db.prepare('SELECT foto FROM productos WHERE id = ?').get(req.params.id)?.foto);
+    if (!f) return next(new HttpError(404, 'Sin foto'));
+    res.set('Cache-Control', 'private, max-age=300').type(f.mime).sendFile(f.file);
+  });
   const camposProducto = b => {
     if (!b.nombre?.trim()) throw new HttpError(400, 'El nombre es obligatorio');
     const factor = Math.max(1, Math.round(Number(b.factor) || 1));
@@ -83,23 +105,51 @@ function crearApp() {
   api.get('/proveedores', wrap(() => db.prepare('SELECT * FROM proveedores WHERE activo = 1 ORDER BY nombre').all()));
   api.post('/proveedores', staff, wrap(req => {
     if (!req.body.nombre?.trim()) throw new HttpError(400, 'Nombre obligatorio');
-    return { id: Number(db.prepare('INSERT INTO proveedores(nombre,telefono,contacto,dias_devolucion) VALUES(?,?,?,?)').run(req.body.nombre.trim(), req.body.telefono || null, req.body.contacto || null, Number(req.body.dias_devolucion) || 60).lastInsertRowid) };
+    return { id: Number(db.prepare('INSERT INTO proveedores(nombre,telefono,contacto,dias_devolucion,dias_entrega) VALUES(?,?,?,?,?)').run(req.body.nombre.trim(), req.body.telefono || null, req.body.contacto || null, Number(req.body.dias_devolucion) || 60, Math.max(0, Number(req.body.dias_entrega) || 1)).lastInsertRowid) };
   }));
   api.put('/proveedores/:id', staff, wrap(req => {
-    db.prepare('UPDATE proveedores SET nombre=?,telefono=?,contacto=?,dias_devolucion=? WHERE id=?').run(req.body.nombre, req.body.telefono || null, req.body.contacto || null, Number(req.body.dias_devolucion) || 60, req.params.id);
+    db.prepare('UPDATE proveedores SET nombre=?,telefono=?,contacto=?,dias_devolucion=?,dias_entrega=? WHERE id=?').run(req.body.nombre, req.body.telefono || null, req.body.contacto || null, Number(req.body.dias_devolucion) || 60, Math.max(0, Number(req.body.dias_entrega) || 1), req.params.id);
     return { ok: true };
   }));
 
+  api.get('/proveedores/:id/detalle', staff, wrap(req => proveedores.detalle(Number(req.params.id))));
+
+  // ---------- Recetas ----------
+  api.get('/recetas', wrap(req => recetas.buscarRecetas(req.query.q, { todas: req.query.todas === '1' })));
+  api.post('/recetas', wrap(req => recetas.crearReceta(req.body, req.user)));
+  api.get('/recetas/:id', wrap(req => recetas.getReceta(Number(req.params.id))));
+  api.get('/recetas/:id/imagen', (req, res, next) => {
+    const f = rutaImagen('recetas', req.params.id, db.prepare('SELECT imagen FROM recetas WHERE id = ?').get(req.params.id)?.imagen);
+    if (!f) return next(new HttpError(404, 'La receta no tiene imagen'));
+    res.set('Cache-Control', 'private, max-age=300').type(f.mime).sendFile(f.file);
+  });
+
+  // ---------- Escáner, asistente, avisos ----------
+  api.get('/escaneo', wrap(req => escaneo.consultar(req.query.c)));
+  api.post('/asistente', wrap(req => asistente.preguntar(req.body.pregunta)));
+  api.get('/clientes/:id/historial', wrap(req => clientes.historial(Number(req.params.id))));
+  api.post('/clientes/:id/avisos', wrap(req => clientes.crearAviso(Number(req.params.id), Number(req.body.producto_id))));
+  api.get('/avisos/pendientes', wrap(() => clientes.pendientes()));
+  api.post('/avisos/:id/enviar', staff, wrap(req => clientes.enviarAvisoId(req.params.id)));
+
   // ---------- Inventario / vencimientos ----------
-  api.get('/vencimientos', wrap(req => inv.analisisVencimientos({ soloAlerta: req.query.todos !== '1' })));
+  api.get('/vencimientos', wrap(req => {
+    const l = inv.analisisVencimientos({ soloAlerta: req.query.todos !== '1' && req.query.dias === undefined });
+    return req.query.dias === undefined ? l : l.filter(x => x.dias <= Number(req.query.dias));
+  }));
   api.get('/stock-critico', wrap(req => inv.stockCritico({ todos: req.query.todos === '1' })));
+  api.get('/pedido-sugerido', wrap(() => inv.sugerenciasPedido()));
   api.get('/productos/:id/lotes', wrap(req => db.prepare('SELECT * FROM lotes WHERE producto_id = ? AND cantidad > 0 ORDER BY vence').all(req.params.id)));
   api.post('/lotes/:id/baja', staff, wrap(req => inv.ajustarLote({ lote_id: Number(req.params.id), cantidad: req.body.cantidad, motivo: req.body.motivo, usuario_id: req.user.id })));
   api.get('/kardex/:productoId', staff, wrap(req => db.prepare(`SELECT m.*, l.lote, u.nombre AS usuario FROM movimientos m LEFT JOIN lotes l ON l.id = m.lote_id
     LEFT JOIN usuarios u ON u.id = m.usuario_id WHERE m.producto_id = ? ORDER BY m.id DESC LIMIT 200`).all(req.params.productoId)));
 
   // ---------- Compras ----------
-  api.post('/compras', staff, wrap(req => inv.registrarCompra({ ...req.body, usuario_id: req.user.id })));
+  api.post('/compras', staff, wrap(async req => {
+    const r = inv.registrarCompra({ ...req.body, usuario_id: req.user.id });
+    const avisos = await clientes.avisarLlegada(req.body.items.map(i => Number(i.producto_id))).catch(() => []);
+    return { ...r, avisos };
+  }));
   api.get('/compras', staff, wrap(() => db.prepare(`SELECT c.*, p.nombre AS proveedor FROM compras c LEFT JOIN proveedores p ON p.id = c.proveedor_id ORDER BY c.id DESC LIMIT 50`).all()));
 
   // ---------- POS ----------

@@ -18,7 +18,7 @@ async function sesion(usuario, password) {
     const res = await fetch(base + '/api' + url, { method, headers: { 'Content-Type': 'application/json', cookie }, body: body ? JSON.stringify(body) : undefined });
     return { status: res.status, body: await res.json().catch(() => null) };
   };
-  return { get: u => call('GET', u), post: (u, b) => call('POST', u, b || {}), put: (u, b) => call('PUT', u, b) };
+  return { get: u => call('GET', u), post: (u, b) => call('POST', u, b || {}), put: (u, b) => call('PUT', u, b), raw: u => fetch(base + '/api' + u, { headers: { cookie } }) };
 }
 
 test.before(async () => {
@@ -29,6 +29,7 @@ test.before(async () => {
 });
 test.after(() => server.close());
 
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 let admin, regente, cajero, P = {};
 
 test('login y permisos por rol', async () => {
@@ -93,22 +94,44 @@ test('lote vencido nunca se vende', async () => {
   db.prepare("UPDATE lotes SET vence=? WHERE lote='NUEVO'").run(dia(400));
 });
 
-test('medicamento con fórmula exige datos de fórmula y la registra', async () => {
-  const item = [{ producto_id: P.amox, cantidad: 1, modo: 'empaque' }];
-  assert.equal((await cajero.post('/ventas', { items: item, medio_pago: 'efectivo' })).status, 400);
-  assert.equal((await cajero.post('/ventas', { items: item, medio_pago: 'efectivo', formula: { paciente: 'Ana' } })).status, 400);
-  const ok = await cajero.post('/ventas', { items: item, medio_pago: 'efectivo', formula: { paciente: 'Ana Ruiz', medico: 'Dr. Pérez', registro_medico: 'RM-123', numero: 'F-9' } });
-  assert.equal(ok.status, 200);
-  assert.equal(ok.body.total, 20000);
-  assert.equal(ok.body.formula.medico, 'Dr. Pérez');
+test('receta: solo se despacha lo recetado y hasta el saldo', async () => {
+  const venta = (n, receta_id, producto = P.amox) => ({ items: [{ producto_id: producto, cantidad: n, modo: 'unidad' }], medio_pago: 'efectivo', receta_id });
+  const base = { paciente: 'Ana Ruiz', medico: 'Dr. Pérez', registro_medico: 'RM-123', numero: 'F-9', items: [{ producto_id: P.amox, cantidad: 6, modo: 'unidad' }] };
+  assert.equal((await cajero.post('/ventas', venta(1))).status, 400);                          // sin receta
+  assert.equal((await cajero.post('/recetas', { ...base, paciente: '' })).status, 400);        // receta incompleta
+  assert.equal((await cajero.post('/recetas', { ...base, fecha_formula: '2020-01-01' })).status, 400); // fórmula vencida
+  const rc = await cajero.post('/recetas', base);
+  assert.equal(rc.status, 200);
+  P.receta = rc.body.id;
+  // otro medicamento con fórmula que NO fue recetado
+  P.otroRx = (await admin.post('/productos', { codigo: 'A9', nombre: 'Losartán', factor: 30, precio_venta: 8000, costo: 4000, requiere_formula: 1 })).body.id;
+  db.prepare('INSERT INTO lotes(producto_id,lote,vence,cantidad,costo_unidad,creado) VALUES(?,?,?,?,?,?)').run(P.otroRx, 'LS', dia(300), 60, 130, 'x');
+  assert.equal((await cajero.post('/ventas', venta(1, P.receta, P.otroRx))).status, 403);      // no está en la fórmula
+  assert.equal((await cajero.post('/ventas', venta(7, P.receta))).status, 409);                // más que lo recetado
+  const v1 = await cajero.post('/ventas', venta(4, P.receta));
+  assert.equal(v1.status, 200);
+  assert.equal(v1.body.formula.medico, 'Dr. Pérez');
+  assert.equal((await cajero.get('/recetas/' + P.receta)).body.items[0].saldo, 2);
+  assert.equal((await cajero.post('/ventas', venta(3, P.receta))).status, 409);                // solo quedan 2
+  const v2 = await cajero.post('/ventas', venta(2, P.receta));
+  assert.equal(v2.status, 200);
+  assert.equal((await cajero.get('/recetas?q=Ana')).body.length, 0);                           // receta completa: ya no se ofrece
+  assert.equal((await regente.post(`/ventas/${v2.body.id}/anular`)).status, 200);
+  assert.equal((await cajero.get('/recetas?q=Ana')).body[0].items[0].saldo, 2);                // anular devuelve el saldo
 });
 
-test('control especial: solo regente y con documento del paciente', async () => {
-  const f = { paciente: 'Luis', medico: 'Dra. Gil', registro_medico: 'RM-5' };
-  const item = [{ producto_id: P.clon, cantidad: 1, modo: 'empaque' }];
-  assert.equal((await cajero.post('/ventas', { items: item, medio_pago: 'efectivo', formula: { ...f, documento_paciente: '123' } })).status, 403);
-  assert.equal((await regente.post('/ventas', { items: item, medio_pago: 'efectivo', formula: f })).status, 400);
-  assert.equal((await regente.post('/ventas', { items: item, medio_pago: 'efectivo', formula: { ...f, documento_paciente: '123' } })).status, 200);
+test('control especial: la receta exige documento y foto; solo el regente despacha', async () => {
+  const items = [{ producto_id: P.clon, cantidad: 1, modo: 'empaque' }];
+  const f = { paciente: 'Luis', medico: 'Dra. Gil', registro_medico: 'RM-5', items };
+  assert.equal((await regente.post('/recetas', f)).status, 400);                               // sin documento
+  assert.equal((await regente.post('/recetas', { ...f, documento_paciente: '123' })).status, 400); // sin foto
+  assert.equal((await regente.post('/recetas', { ...f, documento_paciente: '123', imagen: 'data:text/html;base64,AAAA' })).status, 400);
+  const rc = await regente.post('/recetas', { ...f, documento_paciente: '123', imagen: PNG });
+  assert.equal(rc.status, 200);
+  assert.equal((await regente.raw(`/recetas/${rc.body.id}/imagen`)).status, 200);
+  const venta = { items, medio_pago: 'efectivo', receta_id: rc.body.id };
+  assert.equal((await cajero.post('/ventas', venta)).status, 403);
+  assert.equal((await regente.post('/ventas', venta)).status, 200);
   const libro = await regente.get('/reportes/formulas?control=1&desde=2000-01-01&hasta=2999-12-31');
   assert.equal(libro.body.length, 1);
   assert.match(libro.body[0].medicamentos, /Clonazepam/);
@@ -168,6 +191,121 @@ test('stock crítico: agotado, bajo mínimo y cobertura menor al tiempo de repos
   assert.equal(by(P.clon).nivel, 'agotado');  // se vendió el único empaque
   assert.equal(by(P.amox), undefined);        // 2 empaques sobre mínimo 1: no alerta
   assert.ok(by(P.para).sugerido_empaques >= 1);
+});
+
+test('pedido inteligente: 20 por día, quedan 40 y el proveedor tarda 1 día -> "Pide mañana"', async () => {
+  const prov = (await admin.post('/proveedores', { nombre: 'Droga Rápida', telefono: '573105550000', dias_entrega: 1 })).body.id;
+  P.rapido = (await admin.post('/productos', { codigo: 'RP', nombre: 'Acetaminofén Rápido', factor: 1, precio_venta: 500, costo: 300, stock_min: 0, proveedor_id: prov })).body.id;
+  const lote = db.prepare('INSERT INTO lotes(producto_id,lote,vence,cantidad,costo_unidad,creado) VALUES(?,?,?,?,?,?)').run(P.rapido, 'R1', dia(300), 40, 300, 'x').lastInsertRowid;
+  const v = db.prepare("INSERT INTO ventas(fecha,usuario_id,total,subtotal,medio_pago) VALUES(?,1,10000,10000,'efectivo')");
+  for (let i = 1; i <= 60; i++) {
+    const id = v.run(fmt(new Date(Date.now() - i * 864e5))).lastInsertRowid;
+    db.prepare('INSERT INTO venta_items(venta_id,producto_id,lote_id,cantidad,precio_unit,total) VALUES(?,?,?,20,500,10000)').run(id, P.rapido, lote);
+  }
+  const it = (await admin.get('/pedido-sugerido')).body.find(x => x.id === P.rapido);
+  assert.equal(it.urgencia, 'manana');
+  assert.match(it.sugerencia, /Pide mañana o te quedas sin stock/);
+  assert.equal(it.nivel, 'pronto');
+  assert.ok(!(await admin.get('/stock-critico')).body.some(x => x.id === P.rapido), 'aún no es crítico para alertas');
+  db.prepare('UPDATE lotes SET cantidad = 15 WHERE id = ?').run(lote);                         // ahora 0,75 días de stock
+  assert.match((await admin.get('/pedido-sugerido')).body.find(x => x.id === P.rapido).sugerencia, /Pide HOY/);
+  db.prepare('UPDATE lotes SET cantidad = 40 WHERE id = ?').run(lote);
+});
+
+test('semáforo por producto cambia solo', async () => {
+  const sem = (await admin.get('/productos?q=')).body;
+  const c = n => sem.find(p => p.nombre === n).semaforo;
+  assert.equal(c('Acetaminofén Rápido'), 'amarillo'); // se agota en pocos días
+  assert.equal(c('Lento'), 'rojo');                   // lote vence en 30 días
+  assert.equal(c('Acetaminofén'), 'rojo');            // stock bajo el mínimo
+  db.prepare("UPDATE lotes SET vence = ? WHERE lote = 'L'").run(dia(80));
+  assert.equal((await admin.get('/productos?q=Lento')).body[0].semaforo, 'amarillo');          // vence en 3 meses
+  db.prepare("UPDATE lotes SET vence = ? WHERE lote = 'L'").run(dia(200));
+  assert.equal((await admin.get('/productos?q=Lento')).body[0].semaforo, 'verde');
+});
+
+test('escáner: datos del producto y alertas de lote', async () => {
+  const r = (await cajero.get('/escaneo?c=A1')).body;
+  assert.equal(r.nombre, 'Acetaminofén');
+  assert.equal(r.precio_empaque, 10000);
+  assert.ok(r.lotes.length >= 1 && r.lote_fefo);
+  assert.equal((await cajero.get('/escaneo?c=ZZZ')).status, 404);
+  assert.ok((await cajero.get('/escaneo?c=A1|FALSO')).body.avisos.some(a => /NO aparece en tus compras/.test(a.texto)));
+  db.prepare('INSERT INTO lotes(producto_id,lote,vence,cantidad,costo_unidad,creado) VALUES(?,?,?,?,?,?)').run(P.para, 'OLD', dia(-3), 5, 60, 'x');
+  assert.ok((await cajero.get('/escaneo?c=A1|OLD')).body.avisos.some(a => /VENCIDO/.test(a.texto)));
+  const sale = (await cajero.get('/escaneo?c=A1|NUEVO')).body;
+  assert.ok(sale.avisos.some(a => /Sale primero el lote/.test(a.texto)) || sale.lote_fefo === 'NUEVO');
+});
+
+test('bloqueo de vencidos y vista "¿qué vence esta semana?"', async () => {
+  db.prepare("UPDATE lotes SET cantidad = 0 WHERE producto_id = ? AND lote != 'OLD'").run(P.para);
+  const r = await cajero.post('/ventas', { items: [{ producto_id: P.para, cantidad: 1, modo: 'unidad' }], medio_pago: 'efectivo' });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /BLOQUEADO.*VENCIDAS/);
+  const semana = (await admin.get('/vencimientos?dias=7')).body;
+  assert.ok(semana.some(l => l.lote === 'OLD' && l.estado === 'vencido'));
+  assert.ok(semana.every(l => l.dias <= 7));
+  db.prepare("UPDATE lotes SET cantidad = 40 WHERE producto_id = ? AND lote = 'NUEVO'").run(P.para);
+});
+
+test('proveedores: historial de compras y comparación de precios', async () => {
+  const a = (await admin.post('/proveedores', { nombre: 'Prov A', dias_entrega: 2 })).body.id;
+  const b = (await admin.post('/proveedores', { nombre: 'Prov B', dias_entrega: 3 })).body.id;
+  const compra = (prov, costo) => admin.post('/compras', { proveedor_id: prov, factura: 'X', items: [{ producto_id: P.vit, lote: 'PV' + costo, vence: dia(300), cantidad: 10, costo }] });
+  assert.equal((await compra(b, 3000)).status, 200);
+  assert.equal((await compra(a, 3500)).status, 200);
+  const d = (await admin.get(`/proveedores/${a}/detalle`)).body;
+  assert.equal(d.proveedor.dias_entrega, 2);
+  assert.equal(d.num_compras, 1);
+  const vit = d.productos.find(p => p.nombre === 'Vitamina');
+  assert.equal(vit.ultimo_costo, 3500);
+  assert.equal(vit.mejor_otro.proveedor, 'Prov B');
+  assert.equal(vit.mejor_otro.costo, 3000);
+  assert.equal((await cajero.get(`/proveedores/${a}/detalle`)).status, 403);
+});
+
+test('CRM: historial del cliente y aviso por WhatsApp cuando llega el producto', async () => {
+  const maria = (await cajero.post('/clientes', { nombre: 'María López', documento: '555', telefono: '573001112233' })).body.id;
+  for (let i = 0; i < 2; i++) assert.equal((await cajero.post('/ventas', { items: [{ producto_id: P.vit, cantidad: 1, modo: 'unidad' }], medio_pago: 'efectivo', cliente_id: maria })).status, 200);
+  const h = (await cajero.get(`/clientes/${maria}/historial`)).body;
+  assert.equal(h.compras, 2);
+  assert.equal(h.frecuentes[0].nombre, 'Vitamina');
+  assert.equal(h.frecuentes[0].veces, 2);
+  // Clonazepam está agotado: María pide que le avisen
+  assert.equal((await cajero.post(`/clientes/${maria}/avisos`, { producto_id: P.clon })).status, 200);
+  assert.equal((await cajero.post(`/clientes/${maria}/avisos`, { producto_id: P.clon })).body.repetido, true);
+  assert.equal((await cajero.get('/avisos/pendientes')).body.explicitos.length, 1);
+  const c = await admin.post('/compras', { items: [{ producto_id: P.clon, lote: 'CLN', vence: dia(300), cantidad: 1, costo: 9000 }] });
+  assert.equal(c.body.avisos.length, 1);
+  assert.equal(c.body.avisos[0].estado, 'simulado');
+  assert.equal((await cajero.get('/avisos/pendientes')).body.explicitos.length, 0);
+  const hab = (await cajero.get('/avisos/pendientes')).body.habituales;                         // compró Vitamina 2 veces y llegó mercancía
+  assert.ok(hab.some(x => x.nombre === 'María López' && x.producto === 'Vitamina' && /wa\.me/.test(x.wa_link)));
+});
+
+test('asistente: responde preguntas en lenguaje natural', async () => {
+  const az = (await admin.post('/productos', { codigo: 'AZ', nombre: 'Azitromicina 500 mg', categoria: 'Antibiótico', factor: 6, precio_venta: 18000, costo: 9000, stock_min: 2, requiere_formula: 1 })).body.id;
+  db.prepare('INSERT INTO lotes(producto_id,lote,vence,cantidad,costo_unidad,creado) VALUES(?,?,?,?,?,?)').run(az, 'AZ1', dia(300), 6, 1500, 'x');
+  const ask = async q => (await cajero.post('/asistente', { pregunta: q })).body;
+  const a = await ask('¿Qué antibióticos me quedan con stock bajo?');
+  assert.ok(a.items.some(i => i.titulo.includes('Azitromicina')));
+  assert.ok(!a.items.some(i => i.titulo.includes('Acetaminofén')));
+  assert.ok((await ask('que vence esta semana')).items.some(i => i.titulo.includes('OLD')));
+  assert.match((await ask('¿Cuánto vendí hoy?')).respuesta, /Vendiste \$/);
+  assert.ok((await ask('¿qué debo pedir?')).items.some(i => i.titulo.includes('Rápido')));
+  assert.match((await ask('cuanta azitromicina tengo')).respuesta, /Encontré 1/);
+  assert.match((await ask('asdfghj')).respuesta, /No encontré/);
+  assert.ok((await ask('hola')).ejemplos.length > 3);
+});
+
+test('foto del producto: solo imágenes válidas y solo staff', async () => {
+  assert.equal((await cajero.put(`/productos/${P.para}/foto`, { imagen: PNG })).status, 403);
+  assert.equal((await admin.put(`/productos/${P.para}/foto`, { imagen: 'data:text/plain;base64,QUJD' })).status, 400);
+  assert.equal((await admin.put(`/productos/${P.para}/foto`, { imagen: PNG })).status, 200);
+  const r = await cajero.raw(`/productos/${P.para}/foto`);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'image/png');
+  assert.equal((await cajero.get('/productos?q=Acetaminofén')).body.find(p => p.id === P.para).tiene_foto, true);
 });
 
 test('alertas WhatsApp: se envían una vez por novedad (simulado) y no se repiten', async () => {
