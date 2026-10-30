@@ -1,0 +1,16 @@
+{
+  "name": "drogueria-barrio",
+  "version": "1.0.0",
+  "description": "Sistema de gestión para droguerías de barrio: vencimientos inteligentes, POS con fórmula, alertas por WhatsApp",
+  "private": true,
+  "type": "commonjs",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node src/server.js",
+    "seed": "node src/seed.js",
+    "test": "node --no-warnings --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

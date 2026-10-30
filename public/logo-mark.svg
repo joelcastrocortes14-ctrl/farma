@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="FarmaBarrio">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#14b8a6"/><stop offset="1" stop-color="#0b5a54"/></linearGradient></defs>
+  <rect width="64" height="64" rx="16" fill="url(#g)"/>
+  <path d="M26 11h12a2 2 0 0 1 2 2v11h11a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H40v11a2 2 0 0 1-2 2H26a2 2 0 0 1-2-2V40H13a2 2 0 0 1-2-2V26a2 2 0 0 1 2-2h11V13a2 2 0 0 1 2-2z" fill="#fff"/>
+  <g transform="rotate(-45 32 32)">
+    <rect x="18" y="25.5" width="28" height="13" rx="6.5" fill="#5eead4" stroke="#0f766e" stroke-width="2"/>
+    <path d="M32 25.5h-7.5a6.5 6.5 0 0 0 0 13H32z" fill="#0b5a54"/>
+  </g>
+</svg>

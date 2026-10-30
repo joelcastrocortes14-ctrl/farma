@@ -1,0 +1,191 @@
+const express = require('express');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { db, cfg, allCfg, setCfg, DEFAULTS, hoy, fmt } = require('./db');
+const inv = require('./inventory');
+const sales = require('./sales');
+const alerts = require('./alerts');
+const auth = require('./auth');
+const { proveedor: waProveedor } = require('./whatsapp');
+
+const { HttpError } = inv;
+const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res)).then(r => { if (r !== undefined && !res.headersSent) res.json(r); }).catch(next);
+const staff = auth.roles('admin', 'regente');
+const admin = auth.roles('admin');
+const num = v => (v === '' || v == null ? null : Number(v));
+const bool = v => (v ? 1 : 0);
+
+function crearApp() {
+  const app = express();
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '200kb' }));
+  app.use((_req, res, next) => { res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-store' }); next(); });
+
+  // ---------- Auth ----------
+  app.post('/api/login', wrap((req, res) => {
+    const { token, usuario } = auth.login(req.body.usuario, req.body.password, req.ip);
+    res.cookie('sid', token, { httpOnly: true, sameSite: 'strict', maxAge: 12 * 3600 * 1000, secure: process.env.COOKIE_SECURE === '1' });
+    return usuario;
+  }));
+  app.post('/api/logout', wrap((req, res) => { auth.logout(req); res.clearCookie('sid'); return { ok: true }; }));
+  app.get('/api/me', auth.requireAuth, (req, res) => res.json({ ...req.user, caja: sales.cajaActual(req.user) ? true : false, negocio: cfg('nombre_negocio'), whatsapp: waProveedor() }));
+
+  const api = express.Router();
+  api.use(auth.requireAuth);
+  app.use('/api', api);
+
+  // ---------- Dashboard ----------
+  api.get('/dashboard', wrap(() => {
+    const venc = inv.analisisVencimientos();
+    const stock = inv.stockCritico();
+    const hoyR = sales.reporteVentas({});
+    return {
+      ventas_hoy: hoyR.total, num_ventas_hoy: hoyR.ventas, utilidad_hoy: hoyR.utilidad,
+      lotes_vencidos: venc.filter(l => l.estado === 'vencido').length,
+      lotes_criticos: venc.filter(l => l.estado === 'critico').length,
+      valor_en_riesgo: venc.reduce((s, l) => s + l.valor_riesgo, 0),
+      stock_critico: stock.length, agotados: stock.filter(p => p.nivel === 'agotado').length,
+      cartera: db.prepare('SELECT COALESCE(SUM(saldo),0) s FROM clientes').get().s,
+      top_vencer: venc.filter(l => l.estado !== 'ok').slice(0, 5),
+      top_stock: stock.slice(0, 5),
+      ventas_7d: sales.reporteVentas({ desde: fmt(new Date(Date.now() - 6 * 864e5)).slice(0, 10), hasta: hoy() }).por_dia,
+    };
+  }));
+
+  // ---------- Productos ----------
+  api.get('/productos', wrap(req => {
+    const q = `%${req.query.q || ''}%`;
+    return db.prepare(`SELECT p.*, pr.nombre AS proveedor,
+        COALESCE((SELECT SUM(cantidad) FROM lotes l WHERE l.producto_id = p.id AND l.vence >= ?),0) AS stock
+      FROM productos p LEFT JOIN proveedores pr ON pr.id = p.proveedor_id
+      WHERE p.activo = 1 AND (p.nombre LIKE ? OR p.codigo LIKE ? OR p.principio_activo LIKE ?) ORDER BY p.nombre LIMIT 300`).all(hoy(), q, q, q);
+  }));
+  const camposProducto = b => {
+    if (!b.nombre?.trim()) throw new HttpError(400, 'El nombre es obligatorio');
+    const factor = Math.max(1, Math.round(Number(b.factor) || 1));
+    if (!(Number(b.precio_venta) >= 0)) throw new HttpError(400, 'Precio inválido');
+    return [b.codigo?.trim() || null, b.nombre.trim(), b.principio_activo || null, b.laboratorio || null, b.presentacion || null, b.categoria || null,
+      bool(b.requiere_formula || b.control_especial), bool(b.control_especial), b.invima || null, Number(b.iva) || 0, factor,
+      Number(b.precio_venta), num(b.precio_unidad), Number(b.costo) || 0, Number(b.stock_min) || 0, num(b.proveedor_id)];
+  };
+  const COLS = 'codigo,nombre,principio_activo,laboratorio,presentacion,categoria,requiere_formula,control_especial,invima,iva,factor,precio_venta,precio_unidad,costo,stock_min,proveedor_id';
+  const dup = e => { throw /UNIQUE/.test(e.message) ? new HttpError(409, 'Ya existe un producto con ese código de barras') : e; };
+  api.post('/productos', staff, wrap(req => {
+    try { return { id: Number(db.prepare(`INSERT INTO productos(${COLS}) VALUES(${COLS.split(',').map(() => '?').join(',')})`).run(...camposProducto(req.body)).lastInsertRowid) }; } catch (e) { dup(e); }
+  }));
+  api.put('/productos/:id', staff, wrap(req => {
+    try { db.prepare(`UPDATE productos SET ${COLS.split(',').map(c => c + '=?').join(',')} WHERE id=?`).run(...camposProducto(req.body), req.params.id); } catch (e) { dup(e); }
+    return { ok: true };
+  }));
+  api.delete('/productos/:id', staff, wrap(req => { db.prepare('UPDATE productos SET activo = 0 WHERE id = ?').run(req.params.id); return { ok: true }; }));
+
+  // ---------- Proveedores ----------
+  api.get('/proveedores', wrap(() => db.prepare('SELECT * FROM proveedores WHERE activo = 1 ORDER BY nombre').all()));
+  api.post('/proveedores', staff, wrap(req => {
+    if (!req.body.nombre?.trim()) throw new HttpError(400, 'Nombre obligatorio');
+    return { id: Number(db.prepare('INSERT INTO proveedores(nombre,telefono,contacto,dias_devolucion) VALUES(?,?,?,?)').run(req.body.nombre.trim(), req.body.telefono || null, req.body.contacto || null, Number(req.body.dias_devolucion) || 60).lastInsertRowid) };
+  }));
+  api.put('/proveedores/:id', staff, wrap(req => {
+    db.prepare('UPDATE proveedores SET nombre=?,telefono=?,contacto=?,dias_devolucion=? WHERE id=?').run(req.body.nombre, req.body.telefono || null, req.body.contacto || null, Number(req.body.dias_devolucion) || 60, req.params.id);
+    return { ok: true };
+  }));
+
+  // ---------- Inventario / vencimientos ----------
+  api.get('/vencimientos', wrap(req => inv.analisisVencimientos({ soloAlerta: req.query.todos !== '1' })));
+  api.get('/stock-critico', wrap(req => inv.stockCritico({ todos: req.query.todos === '1' })));
+  api.get('/productos/:id/lotes', wrap(req => db.prepare('SELECT * FROM lotes WHERE producto_id = ? AND cantidad > 0 ORDER BY vence').all(req.params.id)));
+  api.post('/lotes/:id/baja', staff, wrap(req => inv.ajustarLote({ lote_id: Number(req.params.id), cantidad: req.body.cantidad, motivo: req.body.motivo, usuario_id: req.user.id })));
+  api.get('/kardex/:productoId', staff, wrap(req => db.prepare(`SELECT m.*, l.lote, u.nombre AS usuario FROM movimientos m LEFT JOIN lotes l ON l.id = m.lote_id
+    LEFT JOIN usuarios u ON u.id = m.usuario_id WHERE m.producto_id = ? ORDER BY m.id DESC LIMIT 200`).all(req.params.productoId)));
+
+  // ---------- Compras ----------
+  api.post('/compras', staff, wrap(req => inv.registrarCompra({ ...req.body, usuario_id: req.user.id })));
+  api.get('/compras', staff, wrap(() => db.prepare(`SELECT c.*, p.nombre AS proveedor FROM compras c LEFT JOIN proveedores p ON p.id = c.proveedor_id ORDER BY c.id DESC LIMIT 50`).all()));
+
+  // ---------- POS ----------
+  api.get('/pos/buscar', wrap(req => sales.buscarPOS(req.query.q)));
+  api.post('/ventas', wrap(req => {
+    const v = sales.crearVenta(req.body, req.user);
+    setImmediate(() => alerts.revisarAlertas().catch(e => console.error('[alertas]', e.message))); // la venta pudo dejar productos en crítico
+    return v;
+  }));
+  api.get('/ventas', wrap(() => db.prepare(`SELECT v.id, v.fecha, v.total, v.medio_pago, v.estado, u.nombre AS cajero, c.nombre AS cliente,
+      EXISTS(SELECT 1 FROM formulas f WHERE f.venta_id = v.id) AS con_formula FROM ventas v JOIN usuarios u ON u.id = v.usuario_id
+      LEFT JOIN clientes c ON c.id = v.cliente_id ORDER BY v.id DESC LIMIT 50`).all()));
+  api.get('/ventas/:id', wrap(req => sales.getVenta(req.params.id)));
+  api.post('/ventas/:id/anular', wrap(req => sales.anularVenta(Number(req.params.id), req.user)));
+
+  // ---------- Caja ----------
+  api.get('/caja', wrap(req => { const c = sales.cajaActual(req.user); return c ? sales.resumenCaja(c.id) : null; }));
+  api.post('/caja/abrir', wrap(req => sales.abrirCaja(req.body.base, req.user)));
+  api.post('/caja/cerrar', wrap(req => sales.cerrarCaja(req.body.contado, req.user)));
+  api.get('/caja/historial', staff, wrap(() => db.prepare('SELECT id FROM cajas ORDER BY id DESC LIMIT 20').all().map(r => sales.resumenCaja(r.id))));
+
+  // ---------- Clientes / fiado ----------
+  api.get('/clientes', wrap(req => { const q = `%${req.query.q || ''}%`; return db.prepare('SELECT * FROM clientes WHERE nombre LIKE ? OR documento LIKE ? OR telefono LIKE ? ORDER BY nombre LIMIT 100').all(q, q, q); }));
+  api.post('/clientes', wrap(req => {
+    if (!req.body.nombre?.trim()) throw new HttpError(400, 'Nombre obligatorio');
+    try { return { id: Number(db.prepare('INSERT INTO clientes(nombre,documento,telefono) VALUES(?,?,?)').run(req.body.nombre.trim(), req.body.documento?.trim() || null, req.body.telefono || null).lastInsertRowid) }; }
+    catch (e) { throw /UNIQUE/.test(e.message) ? new HttpError(409, 'Ya existe un cliente con ese documento') : e; }
+  }));
+  api.post('/clientes/:id/abonos', wrap(req => sales.abonar({ cliente_id: Number(req.params.id), ...req.body }, req.user)));
+
+  // ---------- Alertas WhatsApp ----------
+  api.get('/alertas/pedidos', staff, wrap(() => alerts.pedidosSugeridos()));
+  api.get('/alertas/log', staff, wrap(() => db.prepare('SELECT * FROM alertas_log ORDER BY id DESC LIMIT 50').all()));
+  api.post('/alertas/revisar', staff, wrap(req => alerts.revisarAlertas({ force: !!req.body.force })));
+  api.post('/alertas/vista-previa', staff, wrap(() => ({
+    stock: inv.stockCritico().length ? alerts.mensajeStock(inv.stockCritico()) : null,
+    vencimiento: (() => { const l = inv.analisisVencimientos({ soloAlerta: true }); return l.length ? alerts.mensajeVence(l) : null; })(),
+  })));
+
+  // ---------- Reportes ----------
+  api.get('/reportes/ventas', staff, wrap(req => sales.reporteVentas(req.query)));
+  api.get('/reportes/formulas', staff, wrap((req, res) => {
+    const filas = sales.libroFormulas({ desde: req.query.desde, hasta: req.query.hasta, soloControl: req.query.control === '1' });
+    if (req.query.formato !== 'csv') return filas;
+    const cols = ['fecha', 'numero', 'paciente', 'documento_paciente', 'medico', 'registro_medico', 'institucion', 'medicamentos', 'despachado_por', 'estado'];
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    res.type('text/csv').attachment('libro-formulas.csv').send('﻿' + [cols.join(','), ...filas.map(f => cols.map(c => esc(f[c])).join(','))].join('\n'));
+  }));
+
+  // ---------- Configuración y usuarios ----------
+  api.get('/config', admin, wrap(() => ({ ...allCfg(), _whatsapp_proveedor: waProveedor() })));
+  api.put('/config', admin, wrap(req => {
+    for (const k of Object.keys(DEFAULTS)) if (req.body[k] !== undefined) setCfg.run(k, String(req.body[k]));
+    return allCfg();
+  }));
+  api.get('/usuarios', admin, wrap(() => db.prepare('SELECT id,nombre,usuario,rol,activo FROM usuarios ORDER BY nombre').all()));
+  api.post('/usuarios', admin, wrap(req => {
+    const { nombre, usuario, password, rol } = req.body;
+    if (!nombre || !usuario || !(password?.length >= 6) || !['admin', 'regente', 'cajero'].includes(rol)) throw new HttpError(400, 'Datos inválidos (contraseña mínimo 6 caracteres)');
+    try { return { id: Number(db.prepare('INSERT INTO usuarios(nombre,usuario,hash,rol) VALUES(?,?,?,?)').run(nombre, usuario.trim(), auth.hashPassword(password), rol).lastInsertRowid) }; }
+    catch (e) { throw /UNIQUE/.test(e.message) ? new HttpError(409, 'Ese usuario ya existe') : e; }
+  }));
+  api.put('/usuarios/:id', admin, wrap(req => {
+    const { nombre, rol, activo, password } = req.body;
+    if (Number(req.params.id) === req.user.id && (activo === false || rol !== 'admin')) throw new HttpError(400, 'No puedes quitarte tu propio acceso de administrador');
+    db.prepare('UPDATE usuarios SET nombre=?, rol=?, activo=? WHERE id=?').run(nombre, rol, activo === false ? 0 : 1, req.params.id);
+    if (password) { if (password.length < 6) throw new HttpError(400, 'Contraseña mínimo 6 caracteres'); db.prepare('UPDATE usuarios SET hash=? WHERE id=?').run(auth.hashPassword(password), req.params.id); }
+    return { ok: true };
+  }));
+
+  // ---------- Estáticos y errores ----------
+  app.use(express.static(path.join(__dirname, '..', 'public')));
+  app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Ruta no encontrada')));
+  app.use((err, _req, res, _next) => {
+    if (!err.status) console.error(err);
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Error interno del servidor' });
+  });
+  return app;
+}
+
+/** Crea el administrador inicial si la base está vacía. */
+function asegurarAdmin() {
+  if (db.prepare('SELECT COUNT(*) n FROM usuarios').get().n) return;
+  const pw = process.env.ADMIN_PASSWORD || crypto.randomBytes(5).toString('hex');
+  db.prepare("INSERT INTO usuarios(nombre,usuario,hash,rol) VALUES('Administrador','admin',?,'admin')").run(auth.hashPassword(pw));
+  console.log(`\n  Usuario inicial -> admin / ${pw}   (cámbiala en Configuración → Usuarios)\n`);
+}
+
+module.exports = { crearApp, asegurarAdmin };
