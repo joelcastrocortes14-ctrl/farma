@@ -91,6 +91,7 @@ const addCol = (t, c, ddl) => { if (!tieneCol(t, c)) db.exec(`ALTER TABLE ${t} A
 addCol('proveedores', 'dias_entrega', 'INTEGER NOT NULL DEFAULT 1');
 addCol('productos', 'foto', 'TEXT');                       // extensión del archivo de foto, null = sin foto
 addCol('ventas', 'receta_id', 'INTEGER');
+addCol('usuarios', 'clave_demo', 'INTEGER NOT NULL DEFAULT 0');   // 1 = sigue con una contraseña de demostración o evidente
 db.exec(`
 CREATE TABLE IF NOT EXISTS recetas (
   id INTEGER PRIMARY KEY, numero TEXT, fecha_formula TEXT NOT NULL, vence TEXT NOT NULL,

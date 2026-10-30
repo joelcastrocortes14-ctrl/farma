@@ -39,16 +39,24 @@ const publico = u => ({ id: u.id, nombre: u.nombre, usuario: u.usuario, rol: u.r
 
 const clavesFaciles = usuario => [`${usuario}123`, 'admin123', 'regente123', 'cajero123', '12345678', '123456', 'password', usuario];
 
-/** ¿Sigue usando una contraseña de demostración o evidente? */
-const esClaveDemo = (usuario, hash) => clavesFaciles(usuario).some(c => verifyPassword(c, hash));
+/** ¿Es una contraseña de demostración o evidente? (comparación directa, sin hashes) */
+const claveFacil = (usuario, clave) => clavesFaciles(usuario).includes(String(clave).toLowerCase());
+
+/** Una sola vez: marca los usuarios existentes que ya tenían una contraseña fácil (solo se pueden revisar con su hash). */
+function marcarClavesDemo() {
+  if (db.prepare("SELECT valor FROM config WHERE clave = 'clave_demo_revisada'").get()) return;
+  for (const u of db.prepare('SELECT id, usuario, hash FROM usuarios WHERE clave_demo = 0').all())
+    if (clavesFaciles(u.usuario).some(c => verifyPassword(c, u.hash))) db.prepare('UPDATE usuarios SET clave_demo = 1 WHERE id = ?').run(u.id);
+  db.prepare("INSERT INTO config(clave, valor) VALUES('clave_demo_revisada', '1')").run();
+}
 
 function cambiarClave(usuarioId, actual, nueva) {
   const u = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(usuarioId);
   nueva = String(nueva || '');
   if (!verifyPassword(String(actual || ''), u.hash)) throw new HttpError(400, 'La contraseña actual no es correcta');
   if (nueva.length < 8) throw new HttpError(400, 'La nueva contraseña debe tener al menos 8 caracteres');
-  if (clavesFaciles(u.usuario).includes(nueva.toLowerCase())) throw new HttpError(400, 'Esa contraseña es demasiado fácil de adivinar. Elige otra.');
-  db.prepare('UPDATE usuarios SET hash = ? WHERE id = ?').run(hashPassword(nueva), usuarioId);
+  if (claveFacil(u.usuario, nueva)) throw new HttpError(400, 'Esa contraseña es demasiado fácil de adivinar. Elige otra.');
+  db.prepare('UPDATE usuarios SET hash = ?, clave_demo = 0 WHERE id = ?').run(hashPassword(nueva), usuarioId);
 }
 
 function cookies(req) {
@@ -74,4 +82,4 @@ function logout(req) {
   if (t) db.prepare('DELETE FROM sesiones WHERE token = ?').run(t);
 }
 
-module.exports = { esClaveDemo, cambiarClave, hashPassword, verifyPassword, login, logout, requireAuth, roles, publico };
+module.exports = { claveFacil, marcarClavesDemo, cambiarClave, hashPassword, verifyPassword, login, logout, requireAuth, roles, publico };

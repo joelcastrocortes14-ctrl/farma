@@ -527,3 +527,38 @@ test('el cajero no ve utilidad, cartera ni tendencia en el inicio', async () => 
   assert.equal(typeof r.utilidad_hoy, 'number');
   assert.ok(Array.isArray(r.ventas_7d));
 });
+
+test('primeros pasos: se marcan solos y no aparecen para el cajero', async () => {
+  assert.equal((await cajero.get('/dashboard')).body.pasos, undefined);
+  const paso = async (sesion, id) => (await sesion.get('/dashboard')).body.pasos.find(p => p.id === id);
+  assert.equal((await paso(regente, 'clave')).hecho, true);                      // regente1 no es de demostración
+  assert.equal((await paso(regente, 'negocio')).hecho, false);                   // sigue "Mi Droguería"
+  assert.equal((await paso(regente, 'negocio')).ir, null);                       // solo el admin entra a Configuración
+  assert.equal((await paso(admin, 'negocio')).ir, 'config');
+  assert.equal((await paso(regente, 'productos')).hecho, true);
+  assert.equal((await paso(regente, 'venta')).hecho, true);
+  assert.equal((await paso(regente, 'whatsapp')).hecho, false);                  // se vació en la prueba anterior
+  setCfg.run('nombre_negocio', 'Droguería de Prueba');
+  setCfg.run('alerta_destinos', '573001112233');
+  assert.equal((await paso(regente, 'negocio')).hecho, true);
+  assert.equal((await paso(regente, 'whatsapp')).hecho, true);
+});
+
+test('restablecer contraseña desde la terminal', async () => {
+  const { execFileSync, spawnSync } = require('node:child_process');
+  const os = require('node:os'), path = require('node:path'), fs = require('node:fs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vt-reset-')), env = { ...process.env, DB_FILE: path.join(dir, 'x.db') };
+  const raiz = path.join(__dirname, '..');
+  execFileSync(process.execPath, ['--no-warnings', '-e', `const {db}=require('./src/db'); const a=require('./src/auth');
+    db.prepare("INSERT INTO usuarios(nombre,usuario,hash,rol,clave_demo) VALUES('A','admin',?,'admin',1)").run(a.hashPassword('admin123'));`], { cwd: raiz, env });
+  const reset = (...args) => spawnSync(process.execPath, ['--no-warnings', 'src/reset-clave.js', ...args], { cwd: raiz, env, encoding: 'utf8' });
+  assert.notEqual(reset('admin').status, 0);                                   // faltan argumentos
+  assert.notEqual(reset('admin', 'corta').status, 0);
+  assert.notEqual(reset('admin', 'admin123').status, 0);                       // demasiado fácil
+  assert.notEqual(reset('nadie', 'UnaClave-Segura-9').status, 0);              // usuario inexistente
+  const ok = reset('admin', 'UnaClave-Segura-9');
+  assert.equal(ok.status, 0, ok.stderr);
+  const verifica = execFileSync(process.execPath, ['--no-warnings', '-e', `const {db}=require('./src/db'); const a=require('./src/auth'); const u=db.prepare("SELECT * FROM usuarios WHERE usuario='admin'").get();
+    console.log(a.verifyPassword('UnaClave-Segura-9', u.hash), a.verifyPassword('admin123', u.hash), u.clave_demo);`], { cwd: raiz, env, encoding: 'utf8' });
+  assert.equal(verifica.trim(), 'true false 0');
+});

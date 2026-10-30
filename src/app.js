@@ -24,6 +24,21 @@ const admin = auth.roles('admin');
 const num = v => (v === '' || v == null ? null : Number(v));
 const bool = v => (v ? 1 : 0);
 
+/** Lista de primeros pasos para dejar la droguería lista; se marca sola según los datos. */
+function pasosIniciales(user) {
+  const n = t => db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n;
+  const esAdmin = user.rol === 'admin';
+  const claveDemo = !!db.prepare('SELECT clave_demo FROM usuarios WHERE id = ?').get(user.id).clave_demo;
+  return [
+    { id: 'clave', titulo: 'Cambia tu contraseña', detalle: 'Estás usando una contraseña de demostración o muy fácil de adivinar.', hecho: !claveDemo, ir: 'clave' },
+    { id: 'negocio', titulo: 'Pon el nombre de tu droguería', detalle: esAdmin ? 'Aparece en los tickets y en los avisos. Está en Configuración.' : 'Aparece en los tickets y en los avisos. Pídeselo al administrador.', hecho: cfg('nombre_negocio') !== 'Mi Droguería', ir: esAdmin ? 'config' : null },
+    { id: 'whatsapp', titulo: 'Agrega el WhatsApp para las alertas', detalle: esAdmin ? 'Para recibir los avisos de stock y vencimientos. Está en Configuración.' : 'Para recibir los avisos de stock y vencimientos. Pídeselo al administrador.', hecho: cfg('alerta_destinos').trim() !== '', ir: esAdmin ? 'config' : null },
+    { id: 'proveedores', titulo: 'Registra tus proveedores', detalle: 'Con su teléfono y sus días de entrega, el pedido sugerido es más exacto.', hecho: n('proveedores') > 0, ir: 'proveedores' },
+    { id: 'productos', titulo: 'Carga tus productos y lotes', detalle: 'Sube tu Excel desde Inventario → Importar de Excel.', hecho: n('productos') > 0 && n('lotes') > 0, ir: 'inventario' },
+    { id: 'venta', titulo: 'Haz tu primera venta', detalle: 'Abre caja y vende algo para probar el punto de venta.', hecho: n('ventas') > 0, ir: 'pos' },
+  ];
+}
+
 function crearApp() {
   const app = express();
   app.disable('x-powered-by');
@@ -40,7 +55,7 @@ function crearApp() {
     return usuario;
   }));
   app.post('/api/logout', wrap((req, res) => { auth.logout(req); res.clearCookie('sid'); return { ok: true }; }));
-  app.get('/api/me', auth.requireAuth, (req, res) => res.json({ ...req.user, clave_demo: auth.esClaveDemo(req.user.usuario, db.prepare('SELECT hash FROM usuarios WHERE id = ?').get(req.user.id).hash), caja: sales.cajaActual(req.user) ? true : false, negocio: cfg('nombre_negocio'), whatsapp: waProveedor() }));
+  app.get('/api/me', auth.requireAuth, (req, res) => res.json({ ...req.user, clave_demo: !!db.prepare('SELECT clave_demo FROM usuarios WHERE id = ?').get(req.user.id).clave_demo, caja: sales.cajaActual(req.user) ? true : false, negocio: cfg('nombre_negocio'), whatsapp: waProveedor() }));
 
   const api = express.Router();
   api.use(auth.requireAuth);
@@ -67,6 +82,7 @@ function crearApp() {
     };
     // el cajero ve lo operativo del día; la utilidad, la cartera y la tendencia son del regente y el administrador
     if (req.user.rol === 'cajero') Object.assign(d, { utilidad_hoy: null, cartera: null, ventas_7d: null });
+    else d.pasos = pasosIniciales(req.user);
     return d;
   }));
 
@@ -239,14 +255,14 @@ function crearApp() {
   api.post('/usuarios', admin, wrap(req => {
     const { nombre, usuario, password, rol } = req.body;
     if (!nombre || !usuario || !(password?.length >= 6) || !['admin', 'regente', 'cajero'].includes(rol)) throw new HttpError(400, 'Datos inválidos (contraseña mínimo 6 caracteres)');
-    try { return { id: Number(db.prepare('INSERT INTO usuarios(nombre,usuario,hash,rol) VALUES(?,?,?,?)').run(nombre, usuario.trim(), auth.hashPassword(password), rol).lastInsertRowid) }; }
+    try { return { id: Number(db.prepare('INSERT INTO usuarios(nombre,usuario,hash,rol,clave_demo) VALUES(?,?,?,?,?)').run(nombre, usuario.trim(), auth.hashPassword(password), rol, auth.claveFacil(usuario.trim(), password) ? 1 : 0).lastInsertRowid) }; }
     catch (e) { throw /UNIQUE/.test(e.message) ? new HttpError(409, 'Ese usuario ya existe') : e; }
   }));
   api.put('/usuarios/:id', admin, wrap(req => {
     const { nombre, rol, activo, password } = req.body;
     if (Number(req.params.id) === req.user.id && (activo === false || rol !== 'admin')) throw new HttpError(400, 'No puedes quitarte tu propio acceso de administrador');
     db.prepare('UPDATE usuarios SET nombre=?, rol=?, activo=? WHERE id=?').run(nombre, rol, activo === false ? 0 : 1, req.params.id);
-    if (password) { if (password.length < 6) throw new HttpError(400, 'Contraseña mínimo 6 caracteres'); db.prepare('UPDATE usuarios SET hash=? WHERE id=?').run(auth.hashPassword(password), req.params.id); }
+    if (password) { if (password.length < 6) throw new HttpError(400, 'Contraseña mínimo 6 caracteres'); db.prepare('UPDATE usuarios SET hash=?, clave_demo=? WHERE id=?').run(auth.hashPassword(password), auth.claveFacil(req.body.usuario || db.prepare('SELECT usuario FROM usuarios WHERE id=?').get(req.params.id).usuario, password) ? 1 : 0, req.params.id); }
     return { ok: true };
   }));
 
@@ -262,9 +278,10 @@ function crearApp() {
 
 /** Crea el administrador inicial si la base está vacía. */
 function asegurarAdmin() {
+  auth.marcarClavesDemo();
   if (db.prepare('SELECT COUNT(*) n FROM usuarios').get().n) return;
   const pw = process.env.ADMIN_PASSWORD || crypto.randomBytes(5).toString('hex');
-  db.prepare("INSERT INTO usuarios(nombre,usuario,hash,rol) VALUES('Administrador','admin',?,'admin')").run(auth.hashPassword(pw));
+  db.prepare("INSERT INTO usuarios(nombre,usuario,hash,rol,clave_demo) VALUES('Administrador','admin',?,'admin',?)").run(auth.hashPassword(pw), auth.claveFacil('admin', pw) ? 1 : 0);
   // Solo se muestra si la generó el sistema; una contraseña definida por ti no se escribe en los registros
   console.log(process.env.ADMIN_PASSWORD ? '\n  Usuario inicial creado: admin (con la contraseña de ADMIN_PASSWORD)\n' : `\n  Usuario inicial -> admin / ${pw}   (cámbiala en Configuración → Usuarios)\n`);
 }

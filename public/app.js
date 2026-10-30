@@ -53,6 +53,7 @@ const VISTAS = [
   ['clientes', 'users', 'Clientes', TODOS],
   ['caja', 'cash', 'Caja', TODOS],
   ['reportes', 'chart', 'Reportes', STAFF],
+  ['ayuda', 'help', 'Ayuda', TODOS],
   ['config', 'sliders', 'Configuración', ['admin']],
 ];
 const V = {};
@@ -111,7 +112,13 @@ V.inicio = async el => {
   const d = await GET('/dashboard');
   const max = Math.max(1, ...(d.ventas_7d || []).map(x => x.total));
   const hayRojo = d.lotes_vencidos > 0 || d.lotes_criticos > 0;
+  const faltan = (d.pasos || []).filter(p => !p.hecho), hechos = (d.pasos || []).length - faltan.length;
   el.innerHTML = html`
+  ${faltan.length ? html`<div class="card" style="margin-bottom:16px"><div class="row sp"><h3 style="margin:0">Primeros pasos</h3><span class="badge blu">${hechos} de ${d.pasos.length}</span></div>
+    <div class="bar" style="margin:12px 0"><i style="width:${(hechos / d.pasos.length * 100).toFixed(0)}%"></i></div>
+    ${d.pasos.map(p => html`<div class="row sp" style="padding:9px 0;border-top:1px solid var(--line)"><div class="row" style="gap:12px;flex-wrap:nowrap"><span class="badge ${p.hecho ? 'grn' : ''}" style="padding:4px">${p.hecho ? ic('check') : ic('x')}</span>
+      <div><b style="${p.hecho ? 'text-decoration:line-through;opacity:.6' : ''}">${p.titulo}</b>${p.hecho ? '' : html`<div class="mut">${p.detalle}</div>`}</div></div>
+      ${!p.hecho && p.ir ? html`<button class="btn sm" data-paso="${p.ir}">Ir</button>` : ''}</div>`)}</div>` : ''}
   <div class="grid cards4">
     <a class="card big" data-go="inventario"><div class="top"><span class="ico blue">${ic('package')}</span>Total de productos</div><div class="n">${d.total_productos}</div><div class="sub">en tu catálogo</div></a>
     <a class="card big alerta ${hayRojo ? 'rojo' : ''}" data-go="vencimientos"><div class="top"><span class="ico ${hayRojo ? 'red' : 'amb'}">${ic('alert')}</span>Por vencer</div><div class="n">${d.por_vencer}</div><div class="sub">${d.lotes_vencidos} vencidos · ${d.lotes_criticos} en 30 días · ${cop(d.valor_en_riesgo)} en riesgo</div></a>
@@ -131,6 +138,7 @@ V.inicio = async el => {
       <p class="mut" style="margin-bottom:0">Cartera por cobrar: <b>${cop(d.cartera)}</b></p></div>` : ''}
   </div>`.s;
   $$('[data-go]').forEach(a => a.onclick = () => go(a.dataset.go));
+  $$('[data-paso]').forEach(b => b.onclick = () => b.dataset.paso === 'clave' ? cambiarClave() : go(b.dataset.paso));
   $('#panic').onclick = () => panico();
 };
 const urgBadge = p => p.nivel === 'agotado' ? html`<span class="badge red">Agotado</span>` : p.urgencia === 'hoy' ? html`<span class="badge red">Pide hoy</span>` : p.urgencia === 'manana' ? html`<span class="badge amb">Pide mañana</span>` : html`<span class="badge blu">Pronto</span>`;

@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node src/server.js",
     "seed": "node src/seed.js",
+    "clave": "node --no-warnings src/reset-clave.js",
     "test": "node --no-warnings --test test/*.test.js"
   },
   "dependencies": {

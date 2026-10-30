@@ -12,6 +12,7 @@ u.run('Administrador', 'admin', hashPassword('admin123'), 'admin');
 u.run('Regente de Farmacia', 'regente', hashPassword('regente123'), 'regente');
 u.run('Cajero', 'cajero', hashPassword('cajero123'), 'cajero');
 
+db.exec('UPDATE usuarios SET clave_demo = 1'); // contraseñas de demostración: el sistema avisa que se cambien
 setCfg.run('nombre_negocio', 'Droguería La Esquina');
 setCfg.run('alerta_destinos', '573001234567');
 

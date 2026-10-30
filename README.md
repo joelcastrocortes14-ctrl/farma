@@ -18,6 +18,16 @@ Sin `seed`, el primer arranque crea el usuario `admin` y muestra su contraseña 
 
 Variables: `PORT`, `DB_FILE`, `TZ` (por defecto `America/Bogota`), `COOKIE_SECURE=1` con HTTPS, `HTTPS_KEY` + `HTTPS_CERT` para servir por HTTPS.
 
+## Primer día
+
+Al entrar, el inicio muestra **Primeros pasos** (contraseña, nombre del negocio, WhatsApp, proveedores, productos, primera venta) y se marcan solos. En el menú hay una **Ayuda** con las tareas del día a día, paso a paso, según el rol.
+
+Si el administrador olvida su contraseña, se restablece desde el servidor:
+
+```bash
+npm run clave -- admin "NuevaClaveSegura9"
+```
+
 ## Control inteligente
 
 - **Semáforo por producto, automático:** verde (bien), amarillo (un lote vence en 90 días o menos, o el stock se agotará pronto), rojo (vencido, vence en 30 días o menos, o stock bajo). Cambia solo con las ventas y las fechas. Los umbrales se ajustan en *Configuración*.
