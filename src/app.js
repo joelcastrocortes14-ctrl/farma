@@ -13,6 +13,7 @@ const proveedores = require('./proveedores');
 const clientes = require('./clientes');
 const asistente = require('./asistente');
 const importador = require('./importar');
+const respaldo = require('./respaldo');
 const { guardarImagen, rutaImagen } = require('./archivos');
 
 const { HttpError } = inv;
@@ -35,7 +36,7 @@ function crearApp() {
     return usuario;
   }));
   app.post('/api/logout', wrap((req, res) => { auth.logout(req); res.clearCookie('sid'); return { ok: true }; }));
-  app.get('/api/me', auth.requireAuth, (req, res) => res.json({ ...req.user, caja: sales.cajaActual(req.user) ? true : false, negocio: cfg('nombre_negocio'), whatsapp: waProveedor() }));
+  app.get('/api/me', auth.requireAuth, (req, res) => res.json({ ...req.user, clave_demo: auth.esClaveDemo(req.user.usuario, db.prepare('SELECT hash FROM usuarios WHERE id = ?').get(req.user.id).hash), caja: sales.cajaActual(req.user) ? true : false, negocio: cfg('nombre_negocio'), whatsapp: waProveedor() }));
 
   const api = express.Router();
   api.use(auth.requireAuth);
@@ -102,6 +103,10 @@ function crearApp() {
   }));
   api.delete('/productos/:id', staff, wrap(req => { db.prepare('UPDATE productos SET activo = 0 WHERE id = ?').run(req.params.id); return { ok: true }; }));
 
+  api.post('/clave', wrap(req => { auth.cambiarClave(req.user.id, req.body.actual, req.body.nueva); return { ok: true }; }));
+  api.get('/respaldos', admin, wrap(() => respaldo.listar()));
+  api.post('/respaldos', admin, wrap(() => respaldo.crear()));
+  api.get('/respaldos/:nombre', admin, (req, res, next) => { try { res.download(respaldo.rutaDe(req.params.nombre)); } catch (e) { next(e); } });
   api.post('/importar', staff, wrap(req => importador.importar(req.body, req.user)));
 
   // ---------- Proveedores ----------

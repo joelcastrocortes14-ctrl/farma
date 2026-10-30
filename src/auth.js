@@ -37,6 +37,20 @@ function login(usuario, password, ip) {
 
 const publico = u => ({ id: u.id, nombre: u.nombre, usuario: u.usuario, rol: u.rol });
 
+const clavesFaciles = usuario => [`${usuario}123`, 'admin123', 'regente123', 'cajero123', '12345678', '123456', 'password', usuario];
+
+/** ¿Sigue usando una contraseña de demostración o evidente? */
+const esClaveDemo = (usuario, hash) => clavesFaciles(usuario).some(c => verifyPassword(c, hash));
+
+function cambiarClave(usuarioId, actual, nueva) {
+  const u = db.prepare('SELECT * FROM usuarios WHERE id = ?').get(usuarioId);
+  nueva = String(nueva || '');
+  if (!verifyPassword(String(actual || ''), u.hash)) throw new HttpError(400, 'La contraseña actual no es correcta');
+  if (nueva.length < 8) throw new HttpError(400, 'La nueva contraseña debe tener al menos 8 caracteres');
+  if (clavesFaciles(u.usuario).includes(nueva.toLowerCase())) throw new HttpError(400, 'Esa contraseña es demasiado fácil de adivinar. Elige otra.');
+  db.prepare('UPDATE usuarios SET hash = ? WHERE id = ?').run(hashPassword(nueva), usuarioId);
+}
+
 function cookies(req) {
   return Object.fromEntries((req.headers.cookie || '').split(';').map(c => c.trim().split('=')).filter(p => p[0]));
 }
@@ -60,4 +74,4 @@ function logout(req) {
   if (t) db.prepare('DELETE FROM sesiones WHERE token = ?').run(t);
 }
 
-module.exports = { hashPassword, verifyPassword, login, logout, requireAuth, roles, publico };
+module.exports = { esClaveDemo, cambiarClave, hashPassword, verifyPassword, login, logout, requireAuth, roles, publico };

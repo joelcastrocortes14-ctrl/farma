@@ -2,9 +2,11 @@ process.env.TZ = process.env.TZ || 'America/Bogota';
 const fs = require('node:fs');
 const { crearApp, asegurarAdmin } = require('./app');
 const { iniciarPlanificador } = require('./alerts');
+const { programar: programarRespaldo } = require('./respaldo');
 
 asegurarAdmin();
 iniciarPlanificador();
+programarRespaldo();
 const port = Number(process.env.PORT) || 3000;
 const app = crearApp();
 

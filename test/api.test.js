@@ -388,3 +388,31 @@ test('importar: reimportar no duplica lotes y "actualizar" cambia precios', asyn
   assert.equal((await regente.post('/importar', { filas: [] })).status, 400);
   assert.equal((await regente.post('/importar', { filas: [{ fila: 2, datos: { Cosa: 'x' } }] })).status, 400);
 });
+
+test('respaldo: crea copia consistente, lista, descarga y solo el admin', async () => {
+  assert.equal((await regente.post('/respaldos')).status, 403);
+  const r = await admin.post('/respaldos');
+  assert.equal(r.status, 200);
+  assert.match(r.body.nombre, /^vitaltrack-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.db$/);
+  assert.ok(r.body.bytes > 10000);
+  assert.ok((await admin.get('/respaldos')).body.some(x => x.nombre === r.body.nombre));
+  const d = await admin.raw('/respaldos/' + r.body.nombre);
+  assert.equal(d.status, 200);
+  assert.equal(Buffer.from(await d.arrayBuffer()).subarray(0, 15).toString(), 'SQLite format 3');   // es una base SQLite válida
+  assert.equal((await admin.raw('/respaldos/../../etc/passwd')).status, 404);
+  assert.equal((await admin.raw('/respaldos/archivo-malo.db')).status, 404);
+});
+
+test('contraseñas de demostración: se avisa y se puede cambiar con reglas', async () => {
+  assert.equal((await admin.get('/me')).body.clave_demo, true);          // admin123 en este entorno
+  assert.equal((await cajero.get('/me')).body.clave_demo, false);        // cajero1 no es de demostración
+  assert.equal((await admin.post('/clave', { actual: 'incorrecta', nueva: 'Una-Buena-Clave-9' })).status, 400);
+  assert.equal((await admin.post('/clave', { actual: 'admin123', nueva: 'corta' })).status, 400);
+  assert.equal((await admin.post('/clave', { actual: 'admin123', nueva: 'admin123' })).status, 400);
+  assert.equal((await admin.post('/clave', { actual: 'admin123', nueva: 'Una-Buena-Clave-9' })).status, 200);
+  assert.equal((await admin.get('/me')).body.clave_demo, false);
+  const login = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario: 'admin', password: 'Una-Buena-Clave-9' }) });
+  assert.equal(login.status, 200);
+  const vieja = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario: 'admin', password: 'admin123' }) });
+  assert.equal(vieja.status, 401);
+});

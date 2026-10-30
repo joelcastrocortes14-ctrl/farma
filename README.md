@@ -8,11 +8,11 @@ Requiere Node 22.13 o superior.
 
 ```bash
 npm install
-npm run seed     # opcional: datos de demostración (admin/admin123, regente/regente123, cajero/cajero123)
+npm run seed     # opcional: datos de demostración (admin/admin123, regente/regente123, cajero/cajero123; el sistema te avisa que las cambies)
 npm start        # http://localhost:3000
 ```
 
-Sin `seed`, el primer arranque crea el usuario `admin` y muestra su contraseña en consola (o usa `ADMIN_PASSWORD=...`). La base y las fotos quedan en `data/`: **haz copia de esa carpeta a diario**.
+Sin `seed`, el primer arranque crea el usuario `admin` y muestra su contraseña en consola (o usa `ADMIN_PASSWORD=...`). La base y las fotos quedan en `data/`. Cada día se crea un **respaldo automático** de la base en `data/respaldos` (se guardan los últimos 14; también se descargan desde *Configuración*). Copia la carpeta `data` a una USB o a tu Drive de vez en cuando.
 
 **Windows (desarrollo):** doble clic en `dev.bat`. Trae los cambios de GitHub cada 15 s y reinicia el servidor solo. Abre http://localhost:3100 y pulsa F5 para ver los cambios.
 

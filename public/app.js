@@ -63,10 +63,11 @@ async function entrar(user) {
   $('#quien').textContent = `${user.nombre} · ${user.rol}`;
   const nav = $('#nav');
   nav.innerHTML = html`<div class="brand"><img src="logo-mark.svg" alt=""><div><b>Vital<i>Track</i></b><small>${user.negocio || ''}</small></div></div>${VISTAS.filter(v => v[3].includes(user.rol)).map(v => html`<a data-v="${v[0]}">${ic(v[1])} ${v[2]} ${v[0] === 'stock' ? html`<span class="badge amb hidden" id="navStock"></span>` : ''}</a>`)}
-    <a data-v="__salir" style="margin-top:20px">${ic('logout')} Salir</a>`.s;
+    <a data-v="__clave" style="margin-top:20px">${ic('user')} Mi contraseña</a><a data-v="__salir">${ic('logout')} Salir</a>`.s;
   go((location.hash || '#inicio').slice(1));
   refrescarBadge();
   if (window.initExtras) initExtras();
+  const aviso = $('#avisoClave'); aviso.classList.toggle('hidden', !user.clave_demo); aviso.onclick = () => cambiarClave();
 }
 async function refrescarBadge() {
   try { const n = (await GET('/stock-critico')).length; const b = $('#navStock'); if (b) { b.textContent = n; b.classList.toggle('hidden', !n); } } catch {}
@@ -81,7 +82,7 @@ async function go(v) {
 }
 document.addEventListener('click', e => {
   const a = e.target.closest('#nav a'); if (!a) return;
-  if (a.dataset.v === '__salir') POST('/logout').then(showLogin); else go(a.dataset.v);
+  if (a.dataset.v === '__salir') POST('/logout').then(showLogin); else if (a.dataset.v === '__clave') cambiarClave(); else go(a.dataset.v);
 });
 $('#menuBtn').onclick = () => $('#nav').classList.toggle('open');
 $('#loginForm').onsubmit = async e => {
@@ -89,6 +90,21 @@ $('#loginForm').onsubmit = async e => {
   try { await POST('/login', formData(e.target)); entrar(await GET('/me')); e.target.reset(); } catch (er) { $('#loginErr').textContent = er.message; }
 };
 window.addEventListener('load', async () => { try { entrar(await GET('/me')); } catch { showLogin(); } });
+
+function cambiarClave() {
+  modal(html`<h3>${ic('user')} Cambiar mi contraseña</h3>
+    <p class="mut" style="margin-top:-4px">Usa una contraseña que solo tú conozcas. Evita nombres, fechas o "123".</p>
+    <form id="fClave"><label>Contraseña actual<input name="actual" type="password" autocomplete="current-password" required></label>
+    <label>Nueva contraseña (mínimo 8 caracteres)<input name="nueva" type="password" autocomplete="new-password" minlength="8" required></label>
+    <label>Repite la nueva contraseña<input name="repite" type="password" autocomplete="new-password" required></label>
+    <div class="row"><button class="btn primary">Guardar</button><button type="button" class="btn" onclick="cerrar()">Cancelar</button></div></form>`);
+  $('#fClave').onsubmit = guard(async e => {
+    e.preventDefault(); const d = formData(e.target);
+    if (d.nueva !== d.repite) return toast('Las contraseñas nuevas no coinciden', true);
+    await POST('/clave', { actual: d.actual, nueva: d.nueva });
+    cerrar(); $('#avisoClave').classList.add('hidden'); toast('Contraseña cambiada');
+  });
+}
 
 /* ---------- Inicio ---------- */
 V.inicio = async el => {
@@ -453,7 +469,7 @@ V.reportes = async el => {
 
 /* ---------- Configuración ---------- */
 V.config = async el => {
-  const [c, us] = await Promise.all([GET('/config'), GET('/usuarios')]);
+  const [c, us, resp] = await Promise.all([GET('/config'), GET('/usuarios'), GET('/respaldos')]);
   const f = (k, l, extra = '') => html`<label>${l}<input name="${k}" value="${c[k]}" ${new Safe(extra)}></label>`;
   el.innerHTML = html`<div class="grid two"><div class="card"><h3>Negocio y alertas</h3><form id="fCfg">${f('nombre_negocio', 'Nombre del negocio')}
     ${f('alerta_destinos', 'Números de WhatsApp para alertas (separados por coma, con indicativo: 573001234567)')}${f('alerta_hora', 'Hora del resumen diario', 'type="time"')}
@@ -462,7 +478,13 @@ V.config = async el => {
     <label class="chk"><input type="checkbox" name="promo_auto" ${c.promo_auto === '1' ? 'checked' : ''}> Aplicar automáticamente en el POS el descuento sugerido por vencimiento</label>
     <button class="btn primary">Guardar</button></form></div>
   <div class="card tw"><h3>Usuarios</h3><table><tbody>${us.map(u => html`<tr><td><b>${u.nombre}</b><div class="mut">${u.usuario}</div></td><td>${u.rol}</td><td>${u.activo ? '' : html`<span class="badge red">inactivo</span>`}</td><td class="r"><button class="btn sm" data-u="${u.id}">Editar</button></td></tr>`)}</tbody></table>
-  <button class="btn primary" id="nu" style="margin-top:10px">${ic('plus')} Nuevo usuario</button></div></div>`.s;
+  <button class="btn primary" id="nu" style="margin-top:10px">${ic('plus')} Nuevo usuario</button></div>
+  <div class="card tw"><h3>${ic('download')} Respaldos</h3>
+    <p class="mut" style="margin-top:-4px">Se crea uno automático cada día y se guardan los últimos 14. Copia la carpeta <code>data</code> a una USB o a tu Drive de vez en cuando: si el computador se daña, ahí está todo.</p>
+    <button class="btn primary" id="rb">${ic('plus')} Crear respaldo ahora</button>
+    <table style="margin-top:10px"><tbody>${resp.slice(0, 8).map(r => html`<tr><td>${r.fecha.replace('T', ' ')}</td><td class="mut">${(r.bytes / 1024).toFixed(0)} KB</td><td class="r"><a class="btn sm" href="/api/respaldos/${r.nombre}">${ic('download')} Descargar</a></td></tr>`)}
+    ${resp.length ? '' : html`<tr><td class="mut">Aún no hay respaldos. El primero se crea solo.</td></tr>`}</tbody></table></div></div>`.s;
+  $('#rb').onclick = guard(async () => { await POST('/respaldos'); toast('Respaldo creado'); V.config(el); });
   $('#fCfg').onsubmit = guard(async e => { e.preventDefault(); const d = formData(e.target); d.promo_auto = e.target.promo_auto.checked ? '1' : '0'; await PUT('/config', d); S.user.negocio = d.nombre_negocio; toast('Configuración guardada'); });
   const userForm = u => {
     modal(html`<h3>${u ? 'Editar' : 'Nuevo'} usuario</h3><form id="fU"><label>Nombre<input name="nombre" value="${u?.nombre || ''}" required></label>${u ? '' : html`<label>Usuario<input name="usuario" required></label>`}
