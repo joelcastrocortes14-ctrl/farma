@@ -28,13 +28,23 @@ async function detenerEscaner() {
 $('#modal').addEventListener('close', detenerEscaner);
 
 /** Explica por qué falló la cámara y cómo resolverlo (el error que llega del navegador viene en inglés). */
-function falloCamara(e) {
+function falloCamara(e, estado) {
   const t = String(e?.message || e);
-  if (/NotAllowed|Permission|denied/i.test(t)) return { titulo: 'El navegador no dejó usar la cámara', pasos: [
-    'Pulsa el <b>candado</b> (o el ícono de cámara) a la izquierda de la dirección, arriba.',
-    'En <b>Cámara</b> elige <b>Permitir</b>.',
-    'Pulsa <b>Reintentar cámara</b>. Si no funciona, recarga la página con <b>F5</b>.',
-    'Si sigues sin poder en Windows: <b>Configuración → Privacidad y seguridad → Cámara</b> y activa el acceso del navegador.'] };
+  if (/NotAllowed|Permission|denied/i.test(t)) {
+    if (estado === 'denied') return { titulo: 'La cámara está BLOQUEADA para este sitio', pasos: [
+      'Reintentar no sirve mientras siga bloqueada: hay que permitirla en el navegador.',
+      'Copia esta dirección en una pestaña nueva: <b>chrome://settings/content/camera</b> (en Edge: <b>edge://settings/content/camera</b>).',
+      'Busca <b>localhost</b> en la lista <b>No permitido</b> y bórralo (o cámbialo a <b>Permitir</b>).',
+      'Vuelve a VitalTrack, recarga con <b>F5</b> y pulsa <b>Escanear</b>. El navegador volverá a preguntar: elige <b>Permitir</b>.'] };
+    if (estado === 'granted') return { titulo: 'El permiso está dado, pero la cámara no responde', pasos: [
+      'En Windows: <b>Configuración → Privacidad y seguridad → Cámara</b> y activa <b>Acceso a la cámara</b> y <b>Permitir que las aplicaciones de escritorio accedan</b>.',
+      'Cierra lo que pueda estar usando la cámara (Zoom, Teams, la app Cámara) y pulsa <b>Reintentar cámara</b>.',
+      'Prueba abrir la app <b>Cámara</b> de Windows: si ahí tampoco funciona, el problema es del equipo o del controlador.'] };
+    return { titulo: 'El navegador no dejó usar la cámara', pasos: [
+      'Si te apareció un aviso pidiendo permiso, elige <b>Permitir</b> y pulsa <b>Reintentar cámara</b>.',
+      'Si no apareció, pulsa el <b>candado</b> a la izquierda de la dirección → <b>Cámara</b> → <b>Permitir</b>, y recarga con <b>F5</b>.',
+      'Si sigues sin poder en Windows: <b>Configuración → Privacidad y seguridad → Cámara</b> y activa el acceso del navegador.'] };
+  }
   if (/NotFound|not found|No camera/i.test(t)) return { titulo: 'No encontré ninguna cámara en este equipo', pasos: ['Conecta una cámara o usa la <b>foto del código</b> o el <b>lector USB</b> (más abajo).'] };
   if (/NotReadable|in use|Could not start|Starting videoinput/i.test(t)) return { titulo: 'La cámara está ocupada', pasos: ['Cierra lo que la esté usando (Zoom, Teams, otra pestaña del navegador) y pulsa <b>Reintentar cámara</b>.'] };
   return { titulo: 'No pude abrir la cámara', pasos: [`Detalle técnico: ${t}`, 'Prueba con <b>Reintentar cámara</b>, o usa la foto del código o el lector USB.'] };
@@ -65,7 +75,8 @@ function abrirEscaner({ titulo = 'Escanear', alLeer }) {
         try { const cams = await Html5Qrcode.getCameras(); if (cams.length) { await escanerActivo.start(cams[0].id, ajustes, lee, () => {}); return; } } catch (e2) { fallo = e2; }
       }
       escanerActivo = null;
-      const f = falloCamara(fallo), c = $('#qrCam'); if (!c) return;
+      let estado = null; try { estado = (await navigator.permissions.query({ name: 'camera' })).state; } catch { /* el navegador no informa el estado del permiso */ }
+      const f = falloCamara(fallo, estado), c = $('#qrCam'); if (!c) return;
       c.innerHTML = html`<div class="alertbox rojo"><b>${f.titulo}</b><ol style="margin:8px 0 0;padding-left:20px;display:grid;gap:4px">${f.pasos.map(x => html`<li>${new Safe(x)}</li>`)}</ol>
         <div class="row" style="margin-top:10px"><button class="btn sm" id="qrRetry">${ic('camera')} Reintentar cámara</button></div></div>`.s;
       $('#qrRetry').onclick = iniciar;
