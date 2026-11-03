@@ -18,6 +18,10 @@ Sin `seed`, el primer arranque crea el usuario `admin` y muestra su contraseña 
 
 Variables: `PORT`, `DB_FILE`, `TZ` (por defecto `America/Bogota`), `COOKIE_SECURE=1` con HTTPS, `HTTPS_KEY` + `HTTPS_CERT` para servir por HTTPS.
 
+## Aspecto
+
+Paleta **vinotinto** sobre crema (con modo oscuro), títulos en **Playfair Display** y texto en **Montserrat**. Las fuentes viajan dentro del proyecto (`public/vendor/fuentes`, licencia OFL), así que funcionan sin internet. Verde, ámbar y rojo se reservan para el estado: semáforo, éxito y alertas. Los colores están como variables al inicio de `public/styles.css`.
+
 ## Primer día
 
 Al entrar, el inicio muestra **Primeros pasos** (contraseña, nombre del negocio, WhatsApp, proveedores, productos, primera venta) y se marcan solos. En el menú hay una **Ayuda** con las tareas del día a día, paso a paso, según el rol.

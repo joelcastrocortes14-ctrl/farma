@@ -1,0 +1,3 @@
+Playfair Display (c) The Playfair Project Authors - SIL Open Font License 1.1 - https://github.com/clauswilke/PlayfairDisplay
+Montserrat (c) The Montserrat Project Authors - SIL Open Font License 1.1 - https://github.com/JulietaUla/Montserrat
+Licencia: https://openfontlicense.org/open-font-license-official-text/
