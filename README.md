@@ -24,7 +24,7 @@ Paleta **vinotinto** sobre crema (con modo oscuro), títulos en **Playfair Displ
 
 ## Primer día
 
-Al entrar, el inicio muestra **Primeros pasos** (contraseña, nombre del negocio, WhatsApp, proveedores, productos, primera venta) y se marcan solos. En el menú hay una **Ayuda** con las tareas del día a día, paso a paso, según el rol.
+En el menú hay una **Ayuda** con las tareas del día a día, paso a paso, según el rol (empezando por *Mi primer día*).
 
 Si el administrador olvida su contraseña, se restablece desde el servidor:
 

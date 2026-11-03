@@ -533,22 +533,6 @@ test('el cajero no ve utilidad, cartera ni tendencia en el inicio', async () => 
   assert.ok(Array.isArray(r.ventas_7d));
 });
 
-test('primeros pasos: se marcan solos y no aparecen para el cajero', async () => {
-  assert.equal((await cajero.get('/dashboard')).body.pasos, undefined);
-  const paso = async (sesion, id) => (await sesion.get('/dashboard')).body.pasos.find(p => p.id === id);
-  assert.equal((await paso(regente, 'clave')).hecho, true);                      // regente1 no es de demostración
-  assert.equal((await paso(regente, 'negocio')).hecho, false);                   // sigue "Mi Droguería"
-  assert.equal((await paso(regente, 'negocio')).ir, null);                       // solo el admin entra a Configuración
-  assert.equal((await paso(admin, 'negocio')).ir, 'config');
-  assert.equal((await paso(regente, 'productos')).hecho, true);
-  assert.equal((await paso(regente, 'venta')).hecho, true);
-  assert.equal((await paso(regente, 'whatsapp')).hecho, false);                  // se vació en la prueba anterior
-  setCfg.run('nombre_negocio', 'Droguería de Prueba');
-  setCfg.run('alerta_destinos', '573001112233');
-  assert.equal((await paso(regente, 'negocio')).hecho, true);
-  assert.equal((await paso(regente, 'whatsapp')).hecho, true);
-});
-
 test('restablecer contraseña desde la terminal', async () => {
   const { execFileSync, spawnSync } = require('node:child_process');
   const os = require('node:os'), path = require('node:path'), fs = require('node:fs');
