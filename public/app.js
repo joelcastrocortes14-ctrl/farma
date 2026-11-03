@@ -300,7 +300,7 @@ V.stock = async el => {
   ${staff ? html`
   <div class="grid two" style="margin-top:16px">
     <div class="card"><h3>Pedido por proveedor</h3>
-      ${pedidos.map(g => html`<div class="alertbox"><b>${g.proveedor}</b><pre class="msg">${g.texto}</pre>
+      ${pedidos.map(g => html`<div class="bloque"><b>${g.proveedor}</b><pre class="msg">${g.texto}</pre>
         ${g.wa_link ? html`<a class="btn primary sm" target="_blank" rel="noopener" href="${g.wa_link}">${ic('chat')} Enviar pedido por WhatsApp</a>` : html`<span class="mut">Sin teléfono del proveedor</span>`}</div>`)}
       ${pedidos.length ? '' : html`<p class="mut">No hay nada que pedir.</p>`}</div>
     <div class="card"><h3>Alertas por WhatsApp</h3>
