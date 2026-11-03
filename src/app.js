@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { db, cfg, allCfg, setCfg, DEFAULTS, hoy, fmt } = require('./db');
+const { db, tx, cfg, allCfg, setCfg, DEFAULTS, hoy, fmt } = require('./db');
 const inv = require('./inventory');
 const sales = require('./sales');
 const alerts = require('./alerts');
@@ -160,6 +160,35 @@ function crearApp() {
   api.get('/pedido-sugerido', wrap(() => inv.sugerenciasPedido()));
   api.get('/productos/:id/lotes', wrap(req => db.prepare('SELECT * FROM lotes WHERE producto_id = ? AND cantidad > 0 ORDER BY vence').all(req.params.id)));
   api.post('/lotes/:id/baja', staff, wrap(req => inv.ajustarLote({ lote_id: Number(req.params.id), cantidad: req.body.cantidad, motivo: req.body.motivo, usuario_id: req.user.id })));
+  // Catálogo de códigos QR: cada medicamento con sus lotes con existencia, para ver, descargar e imprimir
+  api.get('/qr', staff, wrap(req => {
+    const q = `%${req.query.q || ''}%`;
+    const prods = db.prepare(`SELECT id, codigo, nombre, presentacion, precio_venta, factor, foto FROM productos WHERE activo = 1
+      AND (nombre LIKE ? OR codigo LIKE ? OR principio_activo LIKE ? OR categoria LIKE ?) ORDER BY nombre LIMIT 300`).all(q, q, q, q);
+    const lotes = new Map();
+    if (prods.length) for (const l of db.prepare(`SELECT id, producto_id, lote, vence, cantidad FROM lotes WHERE cantidad > 0 AND producto_id IN (${prods.map(() => '?').join(',')}) ORDER BY vence, id`).all(...prods.map(p => p.id))) {
+      if (!lotes.has(l.producto_id)) lotes.set(l.producto_id, []);
+      lotes.get(l.producto_id).push(l);
+    }
+    return prods.map(p => ({ ...p, tiene_foto: !!p.foto, lotes: lotes.get(p.id) || [] }));
+  }));
+  // Código interno (VT000012) para los productos que no traen código de barras: así se pueden etiquetar y escanear
+  api.post('/productos/codigo-interno', staff, wrap(req => {
+    const ids = req.body.producto_id ? [Number(req.body.producto_id)] : db.prepare("SELECT id FROM productos WHERE activo = 1 AND (codigo IS NULL OR codigo = '')").all().map(r => r.id);
+    const asignados = [];
+    tx(() => {
+      for (const id of ids) {
+        const p = db.prepare('SELECT id, codigo FROM productos WHERE id = ? AND activo = 1').get(id);
+        if (!p) throw new HttpError(404, 'Producto no existe');
+        if (p.codigo) continue;
+        let codigo = `VT${String(id).padStart(6, '0')}`;
+        for (let n = 1; db.prepare('SELECT 1 FROM productos WHERE codigo = ?').get(codigo); n++) codigo = `VT${String(id).padStart(6, '0')}-${n}`;
+        db.prepare('UPDATE productos SET codigo = ? WHERE id = ?').run(codigo, id);
+        asignados.push({ id, codigo });
+      }
+    });
+    return { asignados: asignados.length, productos: asignados };
+  }));
   api.get('/etiquetas', staff, wrap(req => {
     const filtros = { producto_id: 'l.producto_id', compra_id: 'l.compra_id', lote_id: 'l.id' };
     const usados = Object.keys(filtros).filter(k => req.query[k] !== undefined);

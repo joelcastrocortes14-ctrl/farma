@@ -43,6 +43,12 @@ const AYUDA = [
     'El botón <b>Escanear</b> (arriba) lee un código de barras o un QR y muestra precio, lote que sale primero, vencimiento y proveedor.',
     'En el celular, si el navegador no deja abrir la cámara en vivo, toma una <b>foto del código</b> y se lee igual.',
     'Las etiquetas QR de lote llevan <b>CODIGO|LOTE</b>. Si escaneas una y ese lote no está en tus compras, aparece en <b>rojo</b>: revisa la procedencia y el registro INVIMA antes de venderlo.']],
+  ['Códigos QR de medicamentos y lotes', 'staff', [
+    'Entra a <b>Códigos QR</b>. En <b>Medicamentos</b> cada producto tiene su QR (lleva su código); en <b>Lotes</b> cada lote tiene el suyo (código y lote).',
+    'Busca por nombre o por código. Marca los que quieras y pulsa <b>Imprimir</b>; sin marcar, imprime todos los que ves.',
+    '<b>Ver</b> abre el QR en grande, con opción de <b>descargarlo como imagen</b>.',
+    'Los medicamentos sin código de barras aparecen sin QR: pulsa <b>Asignar códigos internos</b> y quedan con un código propio (VT000012) listo para etiquetar y escanear.',
+    'Abajo hay un generador: escribe cualquier código y obtén su QR.']],
   ['Clientes y fiado', 'todos', [
     'En <b>Clientes</b> registras a quien compra fiado. Cada compra fiada suma a su saldo; los abonos lo bajan.',
     'Al abrir un cliente ves lo que compra seguido y cada cuánto. Puedes pedir que se le avise cuando llegue un producto agotado.',

@@ -48,6 +48,7 @@ const VISTAS = [
   ['vencimientos', 'calendar', 'Vencimientos', TODOS],
   ['stock', 'trend', 'Pedidos y alertas', TODOS],
   ['inventario', 'package', 'Inventario', TODOS],
+  ['qr', 'scan', 'Códigos QR', STAFF],
   ['compras', 'inbox', 'Compras', STAFF],
   ['proveedores', 'truck', 'Proveedores', STAFF],
   ['clientes', 'users', 'Clientes', TODOS],

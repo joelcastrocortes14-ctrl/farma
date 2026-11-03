@@ -573,3 +573,30 @@ test('conteo físico: ajusta sobrantes y faltantes, deja kardex y los faltantes 
   assert.match(k[0].motivo, /Conteo físico/);
   assert.equal((await regente.post(`/lotes/${lote.id}/conteo`, { cantidad: 0.4, modo: 'empaque' })).body.ahora, 0);   // las existencias son unidades enteras: 0,4 de un empaque de 1 unidad redondea a 0
 });
+
+test('catálogo de QR y códigos internos para productos sin código de barras', async () => {
+  assert.equal((await cajero.get('/qr')).status, 403);
+  assert.equal((await cajero.post('/productos/codigo-interno')).status, 403);
+  const todos = (await regente.get('/qr')).body;
+  assert.ok(todos.length > 5);
+  const acet = (await regente.get('/qr?q=A1')).body.find(p => p.codigo === 'A1');                  // buscar por código
+  assert.ok(acet, 'se encuentra por código');
+  assert.ok(Array.isArray(acet.lotes));
+  assert.ok(acet.lotes.every(l => l.cantidad > 0));                                              // solo lotes con existencia
+  assert.equal((await regente.get('/qr?q=zzzinexistente')).body.length, 0);
+  // dos productos sin código y uno que ya tiene el código que se generaría
+  const a = (await admin.post('/productos', { nombre: 'Sin Código Uno', factor: 1, precio_venta: 1000 })).body.id;
+  const b = (await admin.post('/productos', { nombre: 'Sin Código Dos', factor: 1, precio_venta: 1000 })).body.id;
+  db.prepare("UPDATE productos SET codigo = ? WHERE id = ?").run(`VT${String(b).padStart(6, '0')}`, a);   // choque: a ya usa el código que le tocaba a b
+  db.prepare("UPDATE productos SET codigo = NULL WHERE id = ?").run(a);
+  const uno = (await regente.post('/productos/codigo-interno', { producto_id: a })).body;
+  assert.equal(uno.asignados, 1);
+  assert.equal(uno.productos[0].codigo, `VT${String(a).padStart(6, '0')}`);
+  assert.equal((await regente.post('/productos/codigo-interno', { producto_id: a })).body.asignados, 0);   // ya tiene: no lo cambia
+  const masivo = (await regente.post('/productos/codigo-interno')).body;                                    // el resto de los que no tienen
+  assert.ok(masivo.productos.some(x => x.id === b));
+  const codigos = db.prepare("SELECT codigo FROM productos WHERE codigo IS NOT NULL").all().map(r => r.codigo);
+  assert.equal(new Set(codigos).size, codigos.length, 'ningún código repetido');
+  assert.equal((await regente.post('/productos/codigo-interno', { producto_id: 999999 })).status, 404);
+  assert.equal((await regente.get(`/escaneo?c=VT${String(a).padStart(6, '0')}`)).body.nombre, 'Sin Código Uno');   // y el escáner lo encuentra
+});

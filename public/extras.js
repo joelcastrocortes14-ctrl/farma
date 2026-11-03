@@ -27,22 +27,52 @@ async function detenerEscaner() {
 }
 $('#modal').addEventListener('close', detenerEscaner);
 
+/** Explica por qué falló la cámara y cómo resolverlo (el error que llega del navegador viene en inglés). */
+function falloCamara(e) {
+  const t = String(e?.message || e);
+  if (/NotAllowed|Permission|denied/i.test(t)) return { titulo: 'El navegador no dejó usar la cámara', pasos: [
+    'Pulsa el <b>candado</b> (o el ícono de cámara) a la izquierda de la dirección, arriba.',
+    'En <b>Cámara</b> elige <b>Permitir</b>.',
+    'Pulsa <b>Reintentar cámara</b>. Si no funciona, recarga la página con <b>F5</b>.',
+    'Si sigues sin poder en Windows: <b>Configuración → Privacidad y seguridad → Cámara</b> y activa el acceso del navegador.'] };
+  if (/NotFound|not found|No camera/i.test(t)) return { titulo: 'No encontré ninguna cámara en este equipo', pasos: ['Conecta una cámara o usa la <b>foto del código</b> o el <b>lector USB</b> (más abajo).'] };
+  if (/NotReadable|in use|Could not start|Starting videoinput/i.test(t)) return { titulo: 'La cámara está ocupada', pasos: ['Cierra lo que la esté usando (Zoom, Teams, otra pestaña del navegador) y pulsa <b>Reintentar cámara</b>.'] };
+  return { titulo: 'No pude abrir la cámara', pasos: [`Detalle técnico: ${t}`, 'Prueba con <b>Reintentar cámara</b>, o usa la foto del código o el lector USB.'] };
+}
+
 function abrirEscaner({ titulo = 'Escanear', alLeer }) {
   // La cámara en vivo exige HTTPS o localhost; si no, se usa la foto del código
   const camara = window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.Html5Qrcode;
   modal(html`<div class="row sp"><h3>${ic('scan')} ${titulo}</h3><button class="btn ghost sm" onclick="cerrar()">${ic('x')}</button></div>
-    ${camara ? html`<div id="qr-reader"></div><p class="mut">Apunta al código de barras o al QR del empaque.</p>`
-      : html`<div class="alertbox"><b>Cámara en vivo no disponible</b><p class="mut" style="margin:4px 0 0">El navegador solo la permite con HTTPS o en localhost. Toma una foto del código y el sistema lo lee.</p></div>`}
-    <label style="margin-top:10px">Foto del código<input type="file" id="qrFile" accept="image/*" capture="environment"></label>
-    <form id="qrManual" class="row"><input id="qrTxt" class="grow" placeholder="…o escribe el código / usa el lector USB aquí" autocomplete="off"><button class="btn primary">Buscar</button></form>
+    <div id="qrCam">${camara ? '' : html`<div class="alertbox"><b>Cámara en vivo no disponible</b><p class="mut" style="margin:4px 0 0">El navegador solo la permite con HTTPS o en localhost. Toma una foto del código y el sistema lo lee.</p></div>`}</div>
+    <div class="row" style="margin-top:12px"><input type="file" id="qrFile" accept="image/*" capture="environment" hidden>
+      <label for="qrFile" class="btn" style="margin:0;color:var(--ink);cursor:pointer">${ic('camera')} Tomar o elegir una foto del código</label></div>
+    <form id="qrManual" class="row" style="margin-top:12px"><input id="qrTxt" class="grow" placeholder="…o escribe el código / usa el lector USB aquí" autocomplete="off"><button class="btn primary">Buscar</button></form>
     <div id="qrErr" class="error"></div><div id="qr-tmp" style="display:none"></div>`);
   let hasta = 0;
   const lee = texto => { if (Date.now() < hasta || !texto) return; hasta = Date.now() + 2500; alLeer(String(texto).trim()); };
-  if (camara) {
+
+  const iniciar = async () => {
+    await detenerEscaner();
+    const cont = $('#qrCam'); if (!cont) return;
+    cont.innerHTML = '<div id="qr-reader"></div><p class="mut" style="margin:8px 0 0">Apunta al código de barras o al QR del empaque.</p>';
+    const ajustes = { fps: 10, qrbox: { width: 260, height: 160 } };
     escanerActivo = new Html5Qrcode('qr-reader', { verbose: false });
-    escanerActivo.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 160 } }, lee, () => {})
-      .catch(e => { escanerActivo = null; const r = $('#qr-reader'); if (r) r.outerHTML = html`<div class="alertbox rojo">No pude abrir la cámara: ${e.message || e}. Revisa el permiso del navegador o usa la foto.</div>`.s; });
-  }
+    try { await escanerActivo.start({ facingMode: 'environment' }, ajustes, lee, () => {}); return; }
+    catch (e1) {
+      let fallo = e1;
+      if (!/NotAllowed|Permission|denied/i.test(String(e1))) {     // por ejemplo un portátil sin cámara trasera: probar con la primera cámara que haya
+        try { const cams = await Html5Qrcode.getCameras(); if (cams.length) { await escanerActivo.start(cams[0].id, ajustes, lee, () => {}); return; } } catch (e2) { fallo = e2; }
+      }
+      escanerActivo = null;
+      const f = falloCamara(fallo), c = $('#qrCam'); if (!c) return;
+      c.innerHTML = html`<div class="alertbox rojo"><b>${f.titulo}</b><ol style="margin:8px 0 0;padding-left:20px;display:grid;gap:4px">${f.pasos.map(x => html`<li>${new Safe(x)}</li>`)}</ol>
+        <div class="row" style="margin-top:10px"><button class="btn sm" id="qrRetry">${ic('camera')} Reintentar cámara</button></div></div>`.s;
+      $('#qrRetry').onclick = iniciar;
+    }
+  };
+  if (camara) iniciar();
+
   $('#qrFile').onchange = async e => {
     const file = e.target.files[0]; if (!file) return;
     $('#qrErr').textContent = '';

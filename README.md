@@ -50,6 +50,8 @@ npm run clave -- admin "NuevaClaveSegura9"
 
 Botón **Escanear** (arriba) y **Cámara** (en el punto de venta). Lee códigos de barras y QR; muestra precio, lote que sale primero, vencimiento y proveedor. En el POS agrega el producto al carrito sin digitar. También funciona con un lector USB.
 
+Si el navegador dice *Permission denied*, es que bloqueó la cámara: pulsa el candado junto a la dirección → Cámara → Permitir, y **Reintentar cámara** (en Windows también *Configuración → Privacidad y seguridad → Cámara*). El propio escáner muestra estos pasos.
+
 La **cámara en vivo** solo la permiten los navegadores con **HTTPS** o en `localhost`. Si abres el sistema desde el celular por `http://192.168.x.x:3100`, el sistema te pide **tomar una foto del código** y lo lee igual. Para cámara en vivo en el celular:
 
 1. **Túnel HTTPS rápido:** `cloudflared tunnel --url http://localhost:3100` te da una dirección `https://…` temporal.
@@ -68,6 +70,7 @@ La **cámara en vivo** solo la permiten los navegadores con **HTTPS** o en `loca
 | **Conteo físico** | En la ficha del producto (*Inventario → Ver*), botón **Contar** por lote: escribes lo que hay de verdad y el sistema ajusta la diferencia. Queda en el kardex; los faltantes cuentan como pérdida. |
 | **Pérdidas** | En *Reportes*: plata dada de baja por motivo (vencido, dañado…), lo vencido que sigue en bodega y lo que está en riesgo. |
 | **App en el celular** | Se puede instalar: en Chrome (Android) *Instalar app* / *Agregar a la pantalla de inicio*; en iPhone, Safari → Compartir → *Agregar a inicio*. Abre sin la barra del navegador. Necesita conexión: no funciona sin internet ni sin la red de la tienda. |
+| **Códigos QR** | Pantalla con el QR listo de cada medicamento (lleva su código) y de cada lote (`CODIGO|LOTE`). Búsqueda por nombre o por código, selección para imprimir, descarga como imagen PNG y un generador para cualquier código. A los productos sin código de barras se les asigna un **código interno** (`VT000012`) para poder etiquetarlos y escanearlos. |
 | **Etiquetas QR de lote** | Imprime etiquetas (hoja o rollo de 50 × 30 mm) con el QR `CODIGO|LOTE`, nombre, lote y vencimiento. Se ofrecen al ingresar una compra y desde la ficha del producto. Al escanearlas, el sistema verifica el lote al instante. |
 | **Exportar a Excel** | Inventario con lotes, ventas con detalle y utilidad, pedido sugerido y cartera de clientes, en archivos `.xlsx` reales (con filtros y fechas). Solo regente y administrador. |
 | **Compras, inventario, caja, reportes, usuarios** | Ingreso con lote y vencimiento, kardex, bajas, cierre de caja, ventas y utilidad, roles cajero / regente / admin. |
