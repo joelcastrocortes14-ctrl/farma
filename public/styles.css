@@ -25,6 +25,19 @@
   --toast:#F6E9EB;--toast-t:#2B1A1E;--err-bg:#FF8F93;--err-fg:#2B1A1E;--shadow:0 6px 24px rgba(0,0,0,.4)}
 
 *{box-sizing:border-box}
+/* Colores que dibuja el propio navegador: casillas, selección de texto y autocompletado en vinotinto en vez del azul del sistema */
+:root{accent-color:var(--pri)}
+::selection{background:color-mix(in srgb,var(--pri-m) 32%,transparent);color:inherit}
+input:-webkit-autofill,input:-webkit-autofill:focus{-webkit-box-shadow:0 0 0 1000px var(--card) inset;-webkit-text-fill-color:var(--ink);caret-color:var(--pri-m)}
+/* Listas desplegables personalizables (navegadores recientes): el resaltado deja de ser azul del sistema */
+@supports (appearance:base-select){
+  select,::picker(select){appearance:base-select}
+  ::picker(select){background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:14px;padding:6px;box-shadow:0 14px 40px rgba(0,0,0,.22);margin-block:4px}
+  select option{padding:9px 12px;border-radius:9px;font:inherit;color:var(--ink);background:transparent}
+  select option:hover,select option:focus-visible{background:var(--pri-s);color:var(--pri-t);outline:0}
+  select option:checked{background:var(--pri);color:#fff}
+  select option::checkmark{display:none}
+}
 html{color-scheme:light dark}:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 body{margin:0;font:14.5px/1.5 var(--cuerpo);background:var(--bg);color:var(--ink)}
 .hidden{display:none!important}
@@ -99,6 +112,7 @@ label.chk{display:flex;gap:8px;align-items:center;color:var(--ink)}label.chk inp
 .btn.ghost{border-color:transparent;background:none}.btn.icon{padding:9px 12px}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.row>.grow{flex:1;min-width:160px}.sp{justify-content:space-between}
+.hora{display:flex;align-items:center;gap:6px;margin-top:5px}.hora select{width:auto;flex:1;margin:0}.hora b{color:var(--mut)}
 .f2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
 
 /* ---------- etiquetas y semáforo ---------- */

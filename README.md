@@ -20,7 +20,7 @@ Variables: `PORT`, `DB_FILE`, `TZ` (por defecto `America/Bogota`), `COOKIE_SECUR
 
 ## Aspecto
 
-Paleta **vinotinto** sobre crema (con modo oscuro), títulos en **Playfair Display** y texto en **Montserrat**. Las fuentes viajan dentro del proyecto (`public/vendor/fuentes`, licencia OFL), así que funcionan sin internet. Verde, ámbar y rojo se reservan para el estado: semáforo, éxito y alertas. Los colores están como variables al inicio de `public/styles.css`.
+Paleta **vinotinto** sobre crema (con modo oscuro), títulos en **Playfair Display** y texto en **Montserrat**. Las fuentes viajan dentro del proyecto (`public/vendor/fuentes`, licencia OFL), así que funcionan sin internet. Verde, ámbar y rojo se reservan para el estado: semáforo, éxito y alertas. Los colores están como variables al inicio de `public/styles.css`. Los controles que dibuja el navegador (casillas, selección de texto, listas desplegables) también se pintan en vinotinto; el selector de hora es propio. Los calendarios de fecha los dibuja el navegador: se les pone el color de acento, pero cuánto lo respetan depende de la versión.
 
 ## Primer día
 

@@ -480,12 +480,27 @@ V.reportes = async el => {
   $('#fRep').onsubmit = e => { e.preventDefault(); const f = formData(e.target); el.dataset.desde = f.desde; el.dataset.hasta = f.hasta; V.reportes(el); };
 };
 
+/* Selector de hora propio (el nativo del navegador no se puede pintar y sale en azul). Guarda "HH:MM" en 24 h. */
+function horaSelect(nombre, valor) {
+  const [h, m] = String(valor || '07:30').split(':').map(Number);
+  const minutos = [...new Set([...Array(12)].map((_, i) => i * 5).concat(Number.isFinite(m) ? [m] : []))].sort((x, y) => x - y);
+  const dos = n => String(n).padStart(2, '0');
+  return html`<div class="hora"><input type="hidden" name="${nombre}" value="${dos(h || 0)}:${dos(m || 0)}">
+    <select data-hh aria-label="Hora">${[...Array(12)].map((_, i) => html`<option value="${i + 1}" ${i + 1 === (h % 12 || 12) ? 'selected' : ''}>${dos(i + 1)}</option>`)}</select><b>:</b>
+    <select data-mm aria-label="Minutos">${minutos.map(x => html`<option value="${x}" ${x === m ? 'selected' : ''}>${dos(x)}</option>`)}</select>
+    <select data-ap aria-label="a. m. o p. m."><option value="am" ${h < 12 ? 'selected' : ''}>a. m.</option><option value="pm" ${h >= 12 ? 'selected' : ''}>p. m.</option></select></div>`;
+}
+function enlazarHora(cont) {
+  const sync = () => { const h = (Number($('[data-hh]', cont).value) % 12) + ($('[data-ap]', cont).value === 'pm' ? 12 : 0); $('input[type=hidden]', cont).value = `${String(h).padStart(2, '0')}:${String($('[data-mm]', cont).value).padStart(2, '0')}`; };
+  $$('select', cont).forEach(x => x.onchange = sync);
+}
+
 /* ---------- Configuración ---------- */
 V.config = async el => {
   const [c, us, resp] = await Promise.all([GET('/config'), GET('/usuarios'), GET('/respaldos')]);
   const f = (k, l, extra = '') => html`<label>${l}<input name="${k}" value="${c[k]}" ${new Safe(extra)}></label>`;
   el.innerHTML = html`<div class="grid two"><div class="card"><h3>Negocio y alertas</h3><form id="fCfg">${f('nombre_negocio', 'Nombre del negocio')}
-    ${f('alerta_destinos', 'Números de WhatsApp para alertas (separados por coma, con indicativo: 573001234567)')}${f('alerta_hora', 'Hora del resumen diario', 'type="time"')}
+    ${f('alerta_destinos', 'Números de WhatsApp para alertas (separados por coma, con indicativo: 573001234567)')}<label>Hora del resumen diario${horaSelect('alerta_hora', c.alerta_hora)}</label>
     ${f('dias_reposicion', 'Días que tarda en llegar un pedido', 'type="number" min="1"')}${f('dias_vence_critico', 'Vencimiento crítico (días)', 'type="number"')}${f('dias_vence_atencion', 'Vencimiento en atención (días)', 'type="number"')}
     ${f('ventana_rotacion', 'Días de historia para medir rotación', 'type="number" min="7"')}${f('descuento_max_pct', 'Descuento máximo (%)', 'type="number" max="100"')}
     <label class="chk"><input type="checkbox" name="promo_auto" ${c.promo_auto === '1' ? 'checked' : ''}> Aplicar automáticamente en el POS el descuento sugerido por vencimiento</label>
@@ -499,6 +514,7 @@ V.config = async el => {
     <table style="margin-top:10px"><tbody>${resp.slice(0, 8).map(r => html`<tr><td>${r.fecha.replace('T', ' ')}</td><td class="mut">${(r.bytes / 1024).toFixed(0)} KB</td><td class="r"><a class="btn sm" href="/api/respaldos/${r.nombre}">${ic('download')} Descargar</a></td></tr>`)}
     ${resp.length ? '' : html`<tr><td class="mut">Aún no hay respaldos. El primero se crea solo.</td></tr>`}</tbody></table></div></div>`.s;
   $('#rb').onclick = guard(async () => { await POST('/respaldos'); toast('Respaldo creado'); V.config(el); });
+  enlazarHora($('#fCfg .hora'));
   $('#fCfg').onsubmit = guard(async e => { e.preventDefault(); const d = formData(e.target); d.promo_auto = e.target.promo_auto.checked ? '1' : '0'; d.aviso_cierre = e.target.aviso_cierre.checked ? '1' : '0'; await PUT('/config', d); S.user.negocio = d.nombre_negocio; toast('Configuración guardada'); });
   const userForm = u => {
     modal(html`<h3>${u ? 'Editar' : 'Nuevo'} usuario</h3><form id="fU"><label>Nombre<input name="nombre" value="${u?.nombre || ''}" required></label>${u ? '' : html`<label>Usuario<input name="usuario" required></label>`}
